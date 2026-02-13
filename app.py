@@ -11,26 +11,10 @@ sh = gc.open("ระบบเช็คชื่อนักเรียน")
 ws_students = sh.worksheet("Students")
 ws_attendance = sh.worksheet("Attendance")
 
-st.set_page_config(page_title="Dschool Style - ระบบเช็คชื่อ", layout="wide", page_icon="🏫")
+st.set_page_config(page_title="Dschool Style - ระบบครู 3 ท่าน", layout="wide", page_icon="🏫")
 
-# 🎨 Custom CSS เพื่อปรับแต่งให้ใกล้เคียงกับตัวอย่าง
-st.markdown("""
-    <style>
-    .main { background-color: #f0f2f5; }
-    .stHeader { background-color: #1e56a0; color: white; padding: 10px; border-radius: 0 0 20px 20px; text-align: center; }
-    .summary-card { background-color: white; padding: 15px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
-    .student-row { background-color: white; padding: 10px; border-radius: 10px; border: 1px solid #e0e0e0; margin-bottom: 8px; display: flex; align-items: center; }
-    .status-badge { padding: 5px 15px; border-radius: 20px; font-weight: bold; text-align: center; width: 100px; }
-    /* สีสถานะ */
-    .status-ma { background-color: #e8f5e9; color: #2e7d32; border: 1px solid #2e7d32; }
-    .status-sai { background-color: #fffde7; color: #fbc02d; border: 1px solid #fbc02d; }
-    .status-la { background-color: #fff3e0; color: #ef6c00; border: 1px solid #ef6c00; }
-    .status-puey { background-color: #ffebee; color: #c62828; border: 1px solid #c62828; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# ส่วนหัวแอป
-st.markdown("<div class='stHeader'><h1>บันทึกลงเวลาโรงเรียน</h1></div>", unsafe_allow_html=True)
+# CSS ตกแต่งส่วนหัว
+st.markdown("<h1 style='text-align: center; color: #1e56a0;'>บันทึกลงเวลาโรงเรียน</h1>", unsafe_allow_html=True)
 
 data = ws_students.get_all_records()
 
@@ -38,81 +22,89 @@ if len(data) > 0:
     df_students = pd.DataFrame(data)
     class_list = sorted(df_students['ชั้นเรียน'].unique().tolist())
 
-    # การตั้งค่าเบื้องต้น
-    c1, c2 = st.columns(2)
-    with c1: selected_class = st.selectbox("📅 ชั้นเรียน", class_list, index=0)
-    with c2: check_date = st.date_input("เลือกวันที่", datetime.today())
-    
-    teacher_name = st.text_input("👨‍🏫 ชื่อครูที่ปรึกษา", value="ครูที่ปรึกษา")
+    # ส่วนการตั้งค่าชั้นเรียนและวันที่
+    with st.container(border=True):
+        c1, c2 = st.columns(2)
+        with c1: 
+            selected_class = st.selectbox("📅 เลือกชั้นเรียน", class_list)
+        with c2: 
+            check_date = st.date_input("เลือกวันที่", datetime.today())
+        
+        # 🌟 ดึงรายชื่อครูที่ปรึกษาทั้ง 3 ท่าน (ดึงจากแถวแรกของห้องที่เลือก)
+        room_info = df_students[df_students['ชั้นเรียน'] == selected_class].iloc[0]
+        t1 = room_info.get('ครูที่ปรึกษา 1', '')
+        t2 = room_info.get('ครูที่ปรึกษา 2', '')
+        t3 = room_info.get('ครูที่ปรึกษา 3', '')
+        
+        # แสดงชื่อครูแบบอ่านได้อย่างเดียว (Disabled)
+        teacher_display = f"{t1} | {t2} | {t3}"
+        st.text_input("👨‍🏫 ครูที่ปรึกษาประจำห้อง", value=teacher_display, disabled=True)
 
     df_room = df_students[df_students['ชั้นเรียน'] == selected_class].copy()
-    total_std = len(df_room)
-
-    # 📊 ส่วนสรุปจำนวน (Dashboard แบบในรูป)
-    if 'att_data' not in st.session_state:
-        st.session_state.att_data = {str(r['รหัสนักเรียน']): "มาเรียน" for _, r in df_room.iterrows()}
-
-    # คำนวณยอดสรุปแบบ Real-time
-    stats = pd.Series(st.session_state.att_data.values()).value_counts()
+    date_str = check_date.strftime("%d/%m/%Y")
     
-    st.markdown(f"""
-    <div class='summary-card'>
-        <h3 style='text-align:center;'>สรุปยอด {selected_class}</h3>
-        <table style='width:100%; text-align:right;'>
-            <tr style='color:#1e56a0; font-weight:bold;'><td>ประเภท</td><td>รวม</td></tr>
-            <tr><td>จำนวนเต็ม</td><td>{total_std}</td></tr>
-            <tr style='color:green;'><td>มาเรียน</td><td>{stats.get('มาเรียน', 0)}</td></tr>
-            <tr style='color:orange;'><td>สาย</td><td>{stats.get('สาย', 0)}</td></tr>
-            <tr style='color:red;'><td>ลาป่วย/ลากิจ</td><td>{stats.get('ลา', 0) + stats.get('ป่วย', 0)}</td></tr>
-            <tr style='color:grey;'><td>ขาด</td><td>{stats.get('ขาด', 0)}</td></tr>
-        </table>
-    </div>
-    """, unsafe_allow_html=True)
+    # 🌟 ระบบตรวจสอบการบันทึกซ้ำ (Anti-Duplicate)
+    all_attendance = ws_attendance.get_all_records()
+    df_att_check = pd.DataFrame(all_attendance)
+    
+    is_already_checked = False
+    if not df_att_check.empty:
+        # ตรวจสอบว่ามี วันที่ + ชั้นเรียน นี้อยู่ในหน้า Attendance หรือยัง
+        duplicate = df_att_check[(df_att_check['วันที่'] == date_str) & (df_att_check['ชั้นเรียน'] == selected_class)]
+        if not duplicate.empty:
+            is_already_checked = True
 
-    st.markdown("---")
+    if is_already_checked:
+        st.error(f"⚠️ ห้อง {selected_class} บันทึกข้อมูลของวันที่ {date_str} ไปแล้ว")
+        st.info(f"ผู้บันทึกระบบแจ้งว่าเป็น: {duplicate.iloc[0]['ผู้บันทึก']}")
+    else:
+        # ส่วนสรุปยอด (Dashboard) - จำลองยอดรวม
+        if 'att_data' not in st.session_state:
+            st.session_state.att_data = {str(r['รหัสนักเรียน']): "มาเรียน" for _, r in df_room.iterrows()}
 
-    # 📋 รายการนักเรียน
-    status_options = ["มาเรียน", "สาย", "ลา", "ป่วย", "ขาด"]
-    status_emoji = {"มาเรียน": "🟢", "สาย": "🟡", "ลา": "🟠", "ป่วย": "🔴", "ขาด": "⚪"}
-
-    for index, row in df_room.iterrows():
-        sid = str(row['รหัสนักเรียน'])
+        # ส่วนแสดงรายชื่อเช็คชื่อ
+        st.markdown(f"### 📋 รายชื่อนักเรียนห้อง {selected_class}")
+        status_options = ["มาเรียน", "สาย", "ลา", "ป่วย", "ขาด"]
         
-        # สร้างแถวนักเรียนแบบ Responsive
-        with st.container():
-            col_img, col_info, col_btn = st.columns([1, 3, 2])
-            
-            with col_img:
-                # จำลองรูปภาพ (ถ้ามี URL รูปในชีตให้นำมาใส่ตรงนี้ได้)
-                st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=50)
-            
-            with col_info:
-                st.markdown(f"**{index+1}. {row.get('ชื่อ','')}**")
-                st.caption(f"รหัส: {sid}")
-            
-            with col_btn:
-                # ปุ่มเลือกสถานะแบบ Dropdown ที่ดูสะอาดตา
-                current_val = st.session_state.att_data.get(sid, "มาเรียน")
-                new_status = st.selectbox(
-                    "สถานะ", 
-                    status_options, 
-                    key=f"sel_{sid}", 
-                    label_visibility="collapsed",
-                    index=status_options.index(current_val)
-                )
-                if new_status != current_val:
-                    st.session_state.att_data[sid] = new_status
-                    st.rerun()
+        for index, row in df_room.iterrows():
+            sid = str(row['รหัสนักเรียน'])
+            with st.container(border=True):
+                col_info, col_btn = st.columns([3, 2])
+                with col_info:
+                    st.write(f"**{row.get('เลขที่','-')}. {row.get('ชื่อ','')}**")
+                    st.caption(f"รหัส: {sid}")
+                with col_btn:
+                    current_val = st.session_state.att_data.get(sid, "มาเรียน")
+                    new_status = st.selectbox("สถานะ", status_options, key=f"sel_{sid}", 
+                                             label_visibility="collapsed",
+                                             index=status_options.index(current_val))
+                    if new_status != current_val:
+                        st.session_state.att_data[sid] = new_status
+                        st.rerun()
 
-    st.write("")
-    if st.button("🚀 ยืนยันบันทึกข้อมูล", type="primary", use_container_width=True):
-        try:
-            date_str = check_date.strftime("%d/%m/%Y")
-            final_records = [[date_str, str(r['รหัสนักเรียน']), r.get('ชื่อ',''), 
-                             r.get('ชั้นเรียน',''), st.session_state.att_data[str(r['รหัสนักเรียน'])], 
-                             teacher_name] for _, r in df_room.iterrows()]
-            ws_attendance.append_rows(final_records)
-            st.success("✅ บันทึกข้อมูลเรียบร้อย!")
-            st.balloons()
-        except Exception as e:
-            st.error(f"เกิดข้อผิดพลาด: {e}")
+        # ปุ่มบันทึกข้อมูล
+        if st.button("🚀 ยืนยันบันทึกข้อมูล", type="primary", use_container_width=True):
+            try:
+                # ป้องกันการกดพร้อมกันจาก 2 เครื่อง (Re-check)
+                re_check = ws_attendance.get_all_values()
+                exists = any(r[0] == date_str and r[3] == selected_class for r in re_check)
+                
+                if exists:
+                    st.error("❌ บันทึกไม่สำเร็จ: มีการบันทึกข้อมูลห้องนี้ไปแล้วเมื่อครู่นี้")
+                else:
+                    final_records = []
+                    for _, r in df_room.iterrows():
+                        sid = str(r['รหัสนักเรียน'])
+                        final_records.append([
+                            date_str, sid, r.get('ชื่อ',''), r.get('ชั้นเรียน',''), 
+                            st.session_state.att_data[sid], teacher_display
+                        ])
+                    
+                    ws_attendance.append_rows(final_records)
+                    st.success("✅ บันทึกข้อมูลเรียบร้อยแล้ว!")
+                    st.balloons()
+                    st.rerun()
+            except Exception as e:
+                st.error(f"เกิดข้อผิดพลาด: {e}")
+else:
+    st.info("ไม่พบข้อมูลนักเรียนในระบบ")
