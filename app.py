@@ -14,12 +14,17 @@ ws_attendance = sh.worksheet("Attendance")
 st.set_page_config(page_title="ระบบบันทึกเวลาเรียน", layout="wide", page_icon="🏫")
 st.title("🏫 ระบบเช็คชื่อรายห้อง โรงเรียนบ้านเชียงวิทยา")
 
+# ฟังก์ชันสำหรับเลือกสีปุ่ม
+def get_button_style(current_status, target_status, color_code):
+    if current_status == target_status:
+        return "primary" # สีเด่นเมื่อถูกเลือก
+    return "secondary" # สีจางเมื่อไม่ได้เลือก
+
 data = ws_students.get_all_records()
 
 if len(data) > 0:
     df_students = pd.DataFrame(data)
-    class_list = df_students['ชั้นเรียน'].unique().tolist()
-    class_list.sort()
+    class_list = sorted(df_students['ชั้นเรียน'].unique().tolist())
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -31,63 +36,79 @@ if len(data) > 0:
 
     st.markdown("---")
     
-    # ส่วนหัว (Header)
-    col_head_name, col_head_status = st.columns([3, 7])
-    with col_head_name:
-        st.markdown("### 👤 รายชื่อนักเรียน")
-    with col_head_status:
-        st.markdown("### 📝 สถานะการมาเรียน")
-    st.markdown("<hr style='border: 2px solid #ccc; margin-top: 0px; margin-bottom: 0px;'>", unsafe_allow_html=True) 
+    # ส่วนหัว
+    col_h_name, col_h_status = st.columns([3, 7])
+    with col_h_name: st.markdown("### 👤 รายชื่อนักเรียน")
+    with col_h_status: st.markdown("### 📝 เลือกสถานะ (คลิกเพื่อเปลี่ยน)")
+    st.markdown("<hr style='border: 2px solid #ccc; margin-top: 0px;'>", unsafe_allow_html=True)
 
     df_room = df_students[df_students['ชั้นเรียน'] == selected_class].copy()
-    attendance_status = {}
 
-    # วนลูปแสดงรายชื่อและปุ่มสถานะพร้อมสี
+    # 🌟 ระบบจำสถานะด้วย Session State
+    if 'att_data' not in st.session_state:
+        st.session_state.att_data = {}
+
     for index, row in df_room.iterrows():
-        # ปรับสัดส่วนให้ฝั่งปุ่มกว้างขึ้น (3:7) จะได้เรียงแนวนอนสวยๆ
-        col_name, col_status = st.columns([3, 7]) 
+        sid = str(row['รหัสนักเรียน'])
+        # ถ้ายังไม่มีข้อมูลในระบบจำ ให้ตั้งค่าเริ่มต้นเป็น "มาเรียน"
+        if sid not in st.session_state.att_data:
+            st.session_state.att_data[sid] = "มาเรียน"
+
+        col_name, col_ma, col_puay, col_la, col_khad = st.columns([3, 1.75, 1.75, 1.75, 1.75])
         
         with col_name:
-            st.markdown(f"<div style='padding-top: 10px;'><b>เลขที่ {row.get('เลขที่', '-')}</b> | {row.get('ชื่อ', '')}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding-top: 5px;'><b>{row.get('เลขที่','-')}.</b> {row.get('ชื่อ','')}</div>", unsafe_allow_html=True)
         
-        with col_status:
-            attendance_status[row['รหัสนักเรียน']] = st.radio(
-                f"status_{row['รหัสนักเรียน']}", 
-                # 🌟 เปลี่ยนตัวเลือกเป็นสีตามที่คุณต้องการ
-                ["🟢 มาเรียน", "🔴 ป่วย", "🟡 ลา", "🟠 ขาด"], 
-                horizontal=True,
-                label_visibility="collapsed",
-                key=f"status_{row['รหัสนักเรียน']}"
-            )
-            
-        st.markdown("<hr style='margin: 0px; padding: 0px; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
-    
+        # ปุ่ม มาเรียน (เขียว)
+        with col_ma:
+            if st.button(f"🟢 มาเรียน", key=f"ma_{sid}", use_container_width=True, 
+                         type="primary" if st.session_state.att_data[sid] == "มาเรียน" else "secondary"):
+                st.session_state.att_data[sid] = "มาเรียน"
+                st.rerun()
+
+        # ปุ่ม ป่วย (แดง)
+        with col_puay:
+            if st.button(f"🔴 ป่วย", key=f"puay_{sid}", use_container_width=True,
+                         type="primary" if st.session_state.att_data[sid] == "ป่วย" else "secondary"):
+                st.session_state.att_data[sid] = "ป่วย"
+                st.rerun()
+
+        # ปุ่ม ลา (เหลือง)
+        with col_la:
+            if st.button(f"🟡 ลา", key=f"la_{sid}", use_container_width=True,
+                         type="primary" if st.session_state.att_data[sid] == "ลา" else "secondary"):
+                st.session_state.att_data[sid] = "ลา"
+                st.rerun()
+
+        # ปุ่ม ขาด (ส้ม)
+        with col_khad:
+            if st.button(f"🟠 ขาด", key=f"khad_{sid}", use_container_width=True,
+                         type="primary" if st.session_state.att_data[sid] == "ขาด" else "secondary"):
+                st.session_state.att_data[sid] = "ขาด"
+                st.rerun()
+
+        st.markdown("<hr style='margin: 5px; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
+
     st.markdown("<br>", unsafe_allow_html=True)
     
-    if st.button("💾 บันทึกข้อมูลทั้งห้อง", type="primary", use_container_width=True):
-        if teacher_name.strip() == "":
+    if st.button("✅ ยืนยันบันทึกข้อมูลทั้งหมดเข้า Google Sheets", type="primary", use_container_width=True):
+        if not teacher_name.strip():
             st.error("กรุณากรอกชื่อครูผู้บันทึกก่อนครับ ❌")
         else:
             try:
                 date_str = check_date.strftime("%d/%m/%Y")
-                records_to_insert = []
-                
+                final_records = []
                 for index, row in df_room.iterrows():
-                    student_id = row['รหัสนักเรียน']
-                    status = attendance_status[student_id]
-                    
-                    records_to_insert.append([
-                        date_str, 
-                        str(student_id), 
-                        str(row.get('ชื่อ', '')), 
-                        str(row.get('ชั้นเรียน', '')), 
-                        str(status), 
-                        teacher_name
+                    sid = str(row['รหัสนักเรียน'])
+                    final_records.append([
+                        date_str, sid, row.get('ชื่อ',''), 
+                        row.get('ชั้นเรียน',''), st.session_state.att_data[sid], teacher_name
                     ])
                 
-                ws_attendance.append_rows(records_to_insert)
-                st.success(f"บันทึกข้อมูลของห้อง {selected_class} จำนวน {len(records_to_insert)} รายการ เรียบร้อยแล้ว! ✅")
+                ws_attendance.append_rows(final_records)
+                st.success(f"บันทึกข้อมูลเรียบร้อยแล้ว! ข้อมูลวิ่งเข้า Google Sheets แล้วครับ 🎉")
+                # เคลียร์ค่าหลังจากบันทึกเสร็จ
+                del st.session_state.att_data
+                st.rerun()
             except Exception as e:
-                st.error(f"เกิดข้อผิดพลาดในการบันทึกข้อมูล: {e}")
-else:
-    st.info("ยังไม่มีข้อมูลนักเรียนในระบบครับ โปรดเพิ่มข้อมูลลงในชีต 'Students'")
+                st.error(f"เกิดข้อผิดพลาด: {e}")
