@@ -11,14 +11,28 @@ sh = gc.open("ระบบเช็คชื่อนักเรียน")
 ws_students = sh.worksheet("Students")
 ws_attendance = sh.worksheet("Attendance")
 
-st.set_page_config(page_title="ระบบบันทึกเวลาเรียน", layout="wide", page_icon="🏫")
-st.title("🏫 ระบบเช็คชื่อรายห้อง โรงเรียนบ้านเชียงวิทยา")
+st.set_page_config(page_title="ระบบเช็คชื่อบ้านเชียง", layout="wide", page_icon="📱")
 
-# ฟังก์ชันสำหรับเลือกสีปุ่ม
-def get_button_style(current_status, target_status, color_code):
-    if current_status == target_status:
-        return "primary" # สีเด่นเมื่อถูกเลือก
-    return "secondary" # สีจางเมื่อไม่ได้เลือก
+# CSS ตกแต่งให้เหมาะกับมือถือ (ขยายปุ่มให้สูงขึ้นและตัวหนา)
+st.markdown("""
+    <style>
+    div.stButton > button {
+        height: 3em;
+        font-size: 16px !important;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .student-card {
+        background-color: #f9f9f9;
+        padding: 15px;
+        border-radius: 10px;
+        border-left: 5px solid #007bff;
+        margin-bottom: 10px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+st.title("📱 ระบบเช็คชื่อ (ฉบับมือถือ)")
 
 data = ws_students.get_all_records()
 
@@ -26,89 +40,77 @@ if len(data) > 0:
     df_students = pd.DataFrame(data)
     class_list = sorted(df_students['ชั้นเรียน'].unique().tolist())
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
+    # ส่วนเลือกข้อมูล (บีบให้เหลือคอลัมน์เดียวในมือถืออัตโนมัติ)
+    with st.expander("⚙️ ตั้งค่าการบันทึก", expanded=True):
         selected_class = st.selectbox("📌 เลือกชั้นเรียน", class_list)
-    with col2:
-        teacher_name = st.text_input("👨‍🏫 ชื่อครูที่ปรึกษา (ผู้บันทึก)")
-    with col3:
-        check_date = st.date_input("📅 วันที่บันทึก", datetime.today())
+        teacher_name = st.text_input("👨‍🏫 ชื่อครูผู้บันทึก")
+        check_date = st.date_input("📅 วันที่", datetime.today())
 
-    st.markdown("---")
-    
-    # ส่วนหัว
-    col_h_name, col_h_status = st.columns([3, 7])
-    with col_h_name: st.markdown("### 👤 รายชื่อนักเรียน")
-    with col_h_status: st.markdown("### 📝 เลือกสถานะ (คลิกเพื่อเปลี่ยน)")
-    st.markdown("<hr style='border: 2px solid #ccc; margin-top: 0px;'>", unsafe_allow_html=True)
+    st.markdown(f"### 📋 รายชื่อชั้น {selected_class}")
 
     df_room = df_students[df_students['ชั้นเรียน'] == selected_class].copy()
 
-    # 🌟 ระบบจำสถานะด้วย Session State
     if 'att_data' not in st.session_state:
         st.session_state.att_data = {}
 
+    # วนลูปสร้างการ์ดรายชื่อนักเรียน
     for index, row in df_room.iterrows():
         sid = str(row['รหัสนักเรียน'])
-        # ถ้ายังไม่มีข้อมูลในระบบจำ ให้ตั้งค่าเริ่มต้นเป็น "มาเรียน"
         if sid not in st.session_state.att_data:
             st.session_state.att_data[sid] = "มาเรียน"
 
-        col_name, col_ma, col_puay, col_la, col_khad = st.columns([3, 1.75, 1.75, 1.75, 1.75])
-        
-        with col_name:
-            st.markdown(f"<div style='padding-top: 5px;'><b>{row.get('เลขที่','-')}.</b> {row.get('ชื่อ','')}</div>", unsafe_allow_html=True)
-        
-        # ปุ่ม มาเรียน (เขียว)
-        with col_ma:
-            if st.button(f"🟢 มาเรียน", key=f"ma_{sid}", use_container_width=True, 
-                         type="primary" if st.session_state.att_data[sid] == "มาเรียน" else "secondary"):
-                st.session_state.att_data[sid] = "มาเรียน"
-                st.rerun()
+        # การ์ดนักเรียนแต่ละคน
+        with st.container():
+            st.markdown(f"""
+                <div class='student-card'>
+                    <b>เลขที่ {row.get('เลขที่','-')}</b> | {row.get('ชื่อ','')}
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # แบ่งปุ่มเป็น 2 แถว แถวละ 2 ปุ่ม เพื่อให้ปุ่มใหญ่จิ้มง่ายในมือถือ
+            btn_col1, btn_col2 = st.columns(2)
+            
+            with btn_col1:
+                if st.button(f"🟢 มาเรียน", key=f"ma_{sid}", use_container_width=True, 
+                             type="primary" if st.session_state.att_data[sid] == "มาเรียน" else "secondary"):
+                    st.session_state.att_data[sid] = "มาเรียน"
+                    st.rerun()
+                
+                if st.button(f"🟡 ลา", key=f"la_{sid}", use_container_width=True,
+                             type="primary" if st.session_state.att_data[sid] == "ลา" else "secondary"):
+                    st.session_state.att_data[sid] = "ลา"
+                    st.rerun()
 
-        # ปุ่ม ป่วย (แดง)
-        with col_puay:
-            if st.button(f"🔴 ป่วย", key=f"puay_{sid}", use_container_width=True,
-                         type="primary" if st.session_state.att_data[sid] == "ป่วย" else "secondary"):
-                st.session_state.att_data[sid] = "ป่วย"
-                st.rerun()
+            with btn_col2:
+                if st.button(f"🔴 ป่วย", key=f"puay_{sid}", use_container_width=True,
+                             type="primary" if st.session_state.att_data[sid] == "ป่วย" else "secondary"):
+                    st.session_state.att_data[sid] = "ป่วย"
+                    st.rerun()
+                
+                if st.button(f"🟠 ขาด", key=f"khad_{sid}", use_container_width=True,
+                             type="primary" if st.session_state.att_data[sid] == "ขาด" else "secondary"):
+                    st.session_state.att_data[sid] = "ขาด"
+                    st.rerun()
+            
+            st.write("") # เว้นระยะห่างระหว่างคน
 
-        # ปุ่ม ลา (เหลือง)
-        with col_la:
-            if st.button(f"🟡 ลา", key=f"la_{sid}", use_container_width=True,
-                         type="primary" if st.session_state.att_data[sid] == "ลา" else "secondary"):
-                st.session_state.att_data[sid] = "ลา"
-                st.rerun()
-
-        # ปุ่ม ขาด (ส้ม)
-        with col_khad:
-            if st.button(f"🟠 ขาด", key=f"khad_{sid}", use_container_width=True,
-                         type="primary" if st.session_state.att_data[sid] == "ขาด" else "secondary"):
-                st.session_state.att_data[sid] = "ขาด"
-                st.rerun()
-
-        st.markdown("<hr style='margin: 5px; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("---")
     
-    if st.button("✅ ยืนยันบันทึกข้อมูลทั้งหมดเข้า Google Sheets", type="primary", use_container_width=True):
+    if st.button("🚀 ยืนยันบันทึกข้อมูลทั้งหมด", type="primary", use_container_width=True):
         if not teacher_name.strip():
-            st.error("กรุณากรอกชื่อครูผู้บันทึกก่อนครับ ❌")
+            st.error("⚠️ กรุณากรอกชื่อครูผู้บันทึกก่อนครับ")
         else:
             try:
                 date_str = check_date.strftime("%d/%m/%Y")
-                final_records = []
-                for index, row in df_room.iterrows():
-                    sid = str(row['รหัสนักเรียน'])
-                    final_records.append([
-                        date_str, sid, row.get('ชื่อ',''), 
-                        row.get('ชั้นเรียน',''), st.session_state.att_data[sid], teacher_name
-                    ])
+                final_records = [[date_str, str(row['รหัสนักเรียน']), row.get('ชื่อ',''), 
+                                 row.get('ชั้นเรียน',''), st.session_state.att_data[str(row['รหัสนักเรียน'])], 
+                                 teacher_name] for _, row in df_room.iterrows()]
                 
                 ws_attendance.append_rows(final_records)
-                st.success(f"บันทึกข้อมูลเรียบร้อยแล้ว! ข้อมูลวิ่งเข้า Google Sheets แล้วครับ 🎉")
-                # เคลียร์ค่าหลังจากบันทึกเสร็จ
+                st.success(f"✅ บันทึกข้อมูลเรียบร้อยแล้ว!")
                 del st.session_state.att_data
                 st.rerun()
             except Exception as e:
-                st.error(f"เกิดข้อผิดพลาด: {e}")
+                st.error(f"❌ เกิดข้อผิดพลาด: {e}")
+else:
+    st.info("ไม่พบข้อมูลนักเรียน")
