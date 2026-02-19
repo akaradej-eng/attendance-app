@@ -7,15 +7,6 @@ import plotly.express as px
 
 st.set_page_config(page_title="ระบบบริหารจัดการ โรงเรียนบ้านเชียงวิทยา", layout="wide", page_icon="🏫")
 
-# 🎨 CSS ตกแต่ง
-st.markdown("""
-    <style>
-    .summary-box { background-color: #1e56a0; color: white; padding: 15px; border-radius: 15px; text-align: center; margin-bottom: 20px;}
-    div[data-baseweb="select"] { width: 130px !important; }
-    .stSelectbox label { display: none; }
-    </style>
-""", unsafe_allow_html=True)
-
 # 🔗 ฟังก์ชันเชื่อมต่อฐานข้อมูล (ทำครั้งเดียวโหลดเร็วขึ้น)
 @st.cache_resource
 def init_connection():
@@ -39,6 +30,15 @@ with st.sidebar:
 # 🟢 หน้าที่ 1: บันทึกลงเวลา (สำหรับครู)
 # ==========================================
 if menu == "📝 บันทึกลงเวลา":
+    # CSS สำหรับหน้าเช็คชื่อ
+    st.markdown("""
+        <style>
+        .summary-box { background-color: #1e56a0; color: white; padding: 15px; border-radius: 15px; text-align: center; margin-bottom: 20px;}
+        div[data-baseweb="select"] { width: 130px !important; }
+        .stSelectbox label { display: none; }
+        </style>
+    """, unsafe_allow_html=True)
+    
     st.markdown("<h2 style='text-align: center; color: #1e56a0;'>บันทึกลงเวลาโรงเรียน</h2>", unsafe_allow_html=True)
     data = ws_students.get_all_records()
 
@@ -58,7 +58,6 @@ if menu == "📝 บันทึกลงเวลา":
         df_room = df_students[df_students['ชั้นเรียน'] == selected_class].copy()
         date_str = check_date.strftime("%d/%m/%Y")
 
-        # ตรวจสอบการบันทึกซ้ำ
         all_attendance = ws_attendance.get_all_records()
         df_att_check = pd.DataFrame(all_attendance)
         is_already_checked = False
@@ -84,6 +83,7 @@ if menu == "📝 บันทึกลงเวลา":
                 sid = str(row['รหัสนักเรียน'])
                 col_name, col_status = st.columns([7, 3])
                 with col_name:
+                    # 💡 หมายเหตุ: หากหัวคอลัมน์ในชีตคุณคือ 'ชื่อ-นามสกุล' ให้แก้คำว่า 'ชื่อ' ตรงนี้ด้วยนะครับ
                     st.markdown(f"<div style='padding-top:10px;'>{index+1}. {row.get('ชื่อ','')}</div>", unsafe_allow_html=True)
                 with col_status:
                     current_val = st.session_state.att_data.get(sid, "มาเรียน")
@@ -104,57 +104,94 @@ if menu == "📝 บันทึกลงเวลา":
                     st.error(f"เกิดข้อผิดพลาด: {e}")
 
 # ==========================================
-# 📊 หน้าที่ 2: แดชบอร์ด (สำหรับผู้บริหาร)
+# 📊 หน้าที่ 2: แดชบอร์ด (สไตล์ Pluto)
 # ==========================================
 elif menu == "📊 แดชบอร์ดผู้บริหาร":
-    st.markdown("<h2 style='text-align: center; color: #1e56a0;'>📊 สรุปสถิติการมาเรียน</h2>", unsafe_allow_html=True)
+    
+    # 🎨 ใส่ CSS เพื่อแต่งหน้าตาให้คล้าย Pluto
+    st.markdown("""
+        <style>
+        .stApp { background-color: #f3f5f9; }
+        div[data-testid="metric-container"] {
+            background-color: #ffffff;
+            border-left: 5px solid #ff5722;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .st-emotion-cache-12w0qpk, .st-emotion-cache-1104q3j {
+            background-color: #ffffff;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: none;
+        }
+        h2 { color: #15283c; font-weight: 700; }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<h2>📊 Dashboard สรุปสถิติ</h2>", unsafe_allow_html=True)
     
     att_data = ws_attendance.get_all_records()
+    
     if len(att_data) > 0:
         df_att = pd.DataFrame(att_data)
         
-        # ตัวกรองข้อมูล
         with st.container(border=True):
-            st.markdown("**🔍 คัดกรองข้อมูล**")
+            st.markdown("<b>🔍 คัดกรองข้อมูล</b>", unsafe_allow_html=True)
             col1, col2 = st.columns(2)
             with col1:
                 selected_date_dash = st.selectbox("เลือกวันที่", df_att['วันที่'].unique())
             with col2:
-                # เลือกได้หลายห้องพร้อมกัน
-                selected_class_dash = st.multiselect("เลือกชั้นเรียน (ดูรวมได้)", df_att['ชั้นเรียน'].unique(), default=df_att['ชั้นเรียน'].unique())
+                selected_class_dash = st.multiselect("เลือกชั้นเรียน", df_att['ชั้นเรียน'].unique(), default=df_att['ชั้นเรียน'].unique())
 
-        # กรองข้อมูลตามที่เลือก
         mask = (df_att['วันที่'] == selected_date_dash) & (df_att['ชั้นเรียน'].isin(selected_class_dash))
         df_filtered = df_att[mask]
 
-        st.markdown("---")
+        st.write("")
         
         if not df_filtered.empty:
-            # สรุปยอดรวม (Metric)
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("🟢 มาเรียน", len(df_filtered[df_filtered['สถานะ'] == 'มาเรียน']))
-            m2.metric("🟡 สาย", len(df_filtered[df_filtered['สถานะ'] == 'สาย']))
-            m3.metric("🟠 ลา (ป่วย/กิจ)", len(df_filtered[df_filtered['สถานะ'].isin(['ลา', 'ป่วย'])]))
-            m4.metric("🔴 ขาด", len(df_filtered[df_filtered['สถานะ'] == 'ขาด']))
+            m1.metric("นักเรียนทั้งหมด (คน)", len(df_filtered))
+            m2.metric("🟢 มาเรียนปกติ", len(df_filtered[df_filtered['สถานะ'] == 'มาเรียน']))
+            m3.metric("🔴 ลา / ขาด / สาย", len(df_filtered[df_filtered['สถานะ'] != 'มาเรียน']))
             
-            # กราฟวงกลมแสดงสัดส่วน
-            col_chart, col_table = st.columns([1, 1.2])
-            with col_chart:
-                fig = px.pie(df_filtered, names='สถานะ', title='สัดส่วนการมาเรียนประจำวัน', 
-                             color='สถานะ', 
-                             color_discrete_map={'มาเรียน':'#2e7d32', 'สาย':'#fbc02d', 'ลา':'#ef6c00', 'ป่วย':'#c62828', 'ขาด':'#757575'})
-                st.plotly_chart(fig, use_container_width=True)
+            percent_present = (len(df_filtered[df_filtered['สถานะ'] == 'มาเรียน']) / len(df_filtered)) * 100
+            m4.metric("📊 อัตราการเข้าเรียน", f"{percent_present:.1f}%")
+
+            st.write("")
+
+            col_chart1, col_chart2 = st.columns([1.5, 1])
             
-            with col_table:
-                st.markdown("**📋 รายละเอียดข้อมูลนักเรียน**")
-                # แสดงตารางข้อมูลดิบ
-                st.dataframe(df_filtered[['ชื่อ-นามสกุล', 'ชั้นเรียน', 'สถานะ', 'ผู้บันทึก']], hide_index=True, use_container_width=True)
+            with col_chart1:
+                with st.container(border=True):
+                    st.markdown("<b>📈 สถิติแยกตามห้องเรียน</b>", unsafe_allow_html=True)
+                    df_bar = df_filtered.groupby(['ชั้นเรียน', 'สถานะ']).size().reset_index(name='จำนวน')
+                    fig_bar = px.bar(df_bar, x='ชั้นเรียน', y='จำนวน', color='สถานะ', barmode='group',
+                                     color_discrete_map={'มาเรียน':'#28a745', 'สาย':'#ffc107', 'ลา':'#fd7e14', 'ป่วย':'#dc3545', 'ขาด':'#6c757d'})
+                    fig_bar.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=30, b=0))
+                    st.plotly_chart(fig_bar, use_container_width=True)
+            
+            with col_chart2:
+                with st.container(border=True):
+                    st.markdown("<b>🎯 สัดส่วนสถานะวันนี้</b>", unsafe_allow_html=True)
+                    fig_pie = px.pie(df_filtered, names='สถานะ', hole=0.5,
+                                     color='สถานะ', color_discrete_map={'มาเรียน':'#28a745', 'สาย':'#ffc107', 'ลา':'#fd7e14', 'ป่วย':'#dc3545', 'ขาด':'#6c757d'})
+                    fig_pie.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=30, b=0))
+                    st.plotly_chart(fig_pie, use_container_width=True)
+
+            with st.container(border=True):
+                col_tbl_head, col_btn = st.columns([8, 2])
+                with col_tbl_head:
+                    st.markdown("<b>📋 รายละเอียดข้อมูลการลงเวลา</b>", unsafe_allow_html=True)
+                with col_btn:
+                    csv = df_filtered.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button("📥 โหลดไฟล์ CSV", data=csv, file_name=f'report_{selected_date_dash}.csv', use_container_width=True)
                 
-                # ปุ่มดาวน์โหลด Excel/CSV
-                csv = df_filtered.to_csv(index=False).encode('utf-8-sig')
-                st.download_button("📥 ดาวน์โหลดรายงาน (CSV)", data=csv, file_name=f'report_{selected_date_dash}.csv', mime='text/csv', use_container_width=True)
+                # 💡 เช็คชื่อคอลัมน์ของคุณให้ดีนะครับ (ถ้าในชีตคือ 'ชื่อ-นามสกุล' ให้แก้ในวงเล็บข้างล่างด้วยครับ)
+                st.dataframe(df_filtered[['รหัสนักเรียน', 'ชื่อ', 'ชั้นเรียน', 'สถานะ', 'ผู้บันทึก']], hide_index=True, use_container_width=True)
+
         else:
             st.info("ไม่พบข้อมูลตามเงื่อนไขที่ค้นหาครับ")
     else:
         st.warning("ยังไม่มีข้อมูลการเช็คชื่อในระบบเลยครับ")
-
