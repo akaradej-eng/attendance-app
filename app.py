@@ -65,10 +65,12 @@ if menu == "📝 บันทึกลงเวลา":
             if not df_att_check[(df_att_check['วันที่'] == date_str) & (df_att_check['ชั้นเรียน'] == selected_class)].empty:
                 is_already_checked = True
 
-        if is_already_checked:
+      if is_already_checked:
             st.error(f"⚠️ ห้อง {selected_class} บันทึกข้อมูลวันที่ {date_str} เรียบร้อยแล้ว")
         else:
-            if 'att_data' not in st.session_state:
+            # 🌟 ให้ระบบเช็คว่าถ้าเปลี่ยนห้อง ให้ล้างความจำและโหลดรหัสเด็กชุดใหม่เสมอ
+            if 'current_class' not in st.session_state or st.session_state.current_class != selected_class:
+                st.session_state.current_class = selected_class
                 st.session_state.att_data = {str(r['รหัสนักเรียน']): "มาเรียน" for _, r in df_room.iterrows()}
             
             stats = pd.Series(st.session_state.att_data.values()).value_counts()
@@ -195,3 +197,4 @@ elif menu == "📊 แดชบอร์ดผู้บริหาร":
             st.info("ไม่พบข้อมูลตามเงื่อนไขที่ค้นหาครับ")
     else:
         st.warning("ยังไม่มีข้อมูลการเช็คชื่อในระบบเลยครับ")
+
