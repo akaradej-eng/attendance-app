@@ -1,6 +1,4 @@
-streamlit
-pandas
-gspread
-plotly
 qrcode
 Pillow
+opencv-python-headless
+numpy
