@@ -7,6 +7,8 @@ import plotly.express as px
 import qrcode
 from io import BytesIO
 import base64
+import cv2
+import numpy as np
 
 st.set_page_config(page_title="ระบบบริหารจัดการ โรงเรียนบ้านเชียงวิทยา", layout="wide", page_icon="🏫")
 
@@ -71,7 +73,6 @@ st.markdown("""
     div[data-baseweb="select"] { border-radius: 8px; }
     .stSelectbox label { display: none; }
     
-    /* สไตล์สำหรับบัตรประจำตัวนักเรียน */
     .id-card {
         background-color: white; width: 300px; border-radius: 15px;
         box-shadow: 0 4px 8px rgba(0,0,0,0.1); overflow: hidden;
@@ -96,10 +97,10 @@ with st.sidebar:
     st.info(f"📅 รอบการบันทึก:\n{term_start.strftime('%d/%m/%Y')} ถึง {term_end.strftime('%d/%m/%Y')}")
 
 # ==========================================
-# 🟢 หน้าที่ 1: บันทึกลงเวลา (พร้อมระบบ Scan QR)
+# 🟢 หน้าที่ 1: บันทึกลงเวลา (พร้อมระบบกล้อง Scan QR)
 # ==========================================
 if menu == "📝 บันทึกลงเวลา":
-    st.markdown("<h2 style='color: #212529; font-weight:700;'>📝 บันทึกลงเวลาเรียน (รองรับ QR Scan)</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color: #212529; font-weight:700;'>📝 บันทึกลงเวลาเรียน</h2>", unsafe_allow_html=True)
     data = ws_students.get_all_records()
 
     if len(data) > 0:
@@ -133,32 +134,59 @@ if menu == "📝 บันทึกลงเวลา":
             else:
                 if 'current_class' not in st.session_state or st.session_state.current_class != selected_class:
                     st.session_state.current_class = selected_class
-                    # ค่าเริ่มต้นให้ทุกคนเป็น "ขาด" หรือ "มาเรียน" (ปรับได้) 
-                    # เพื่อให้เห็นผลตอนสแกน ผมตั้งค่าเริ่มต้นให้ทุกคนเป็น "ขาด" ก่อน แล้วสแกนเปลี่ยนเป็นมา
+                    # ตั้งค่าเริ่มต้นให้ทุกคนเป็น "ขาด" เพื่อให้สแกนเปลี่ยนเป็น "มาเรียน"
                     st.session_state.att_data = {str(r['รหัสนักเรียน']): "ขาด" for _, r in df_room.iterrows()}
                     st.session_state.scan_msg = ""
                 
-                # 🌟 ฟังก์ชันจัดการเมื่อมีการยิงบาร์โค้ด
-                def process_scan():
-                    scanned = st.session_state.scanner_input.strip()
-                    if scanned in st.session_state.att_data:
-                        st.session_state.att_data[scanned] = "มาเรียน"
-                        st.session_state.scan_msg = f"✅ รหัส {scanned} เปลี่ยนสถานะเป็น 'มาเรียน' สำเร็จ!"
-                    else:
-                        st.session_state.scan_msg = f"❌ ไม่พบรหัส {scanned} ในห้อง {selected_class}"
-                    st.session_state.scanner_input = "" # เคลียร์ช่องสแกนรอคนต่อไป
-
-                # 📸 กล่องรับค่าจากเครื่องสแกน QR
-                st.markdown("### 📸 สแกน QR Code (ยิงบาร์โค้ดที่ช่องนี้)")
-                st.text_input("คลิกให้เคอร์เซอร์กระพริบที่ช่องนี้ แล้วยิง QR Code ได้เลยครับ", 
-                              key="scanner_input", on_change=process_scan)
+                # 📸 แบ่งช่องทางการสแกนเป็น 2 แบบ (กล้องมือถือ / เครื่องยิง)
+                tab_cam, tab_hw = st.tabs(["📷 สแกนผ่านกล้องมือถือ/แท็บเล็ต", "🔫 สแกนผ่านเครื่องยิงบาร์โค้ด"])
                 
-                if st.session_state.scan_msg:
-                    if "✅" in st.session_state.scan_msg:
-                        st.success(st.session_state.scan_msg)
-                    else:
-                        st.error(st.session_state.scan_msg)
+                # --- แบบที่ 1: สแกนผ่านกล้องมือถือ ---
+                with tab_cam:
+                    st.markdown("กดปุ่มเปิดกล้อง ถ่ายรูป QR Code ของนักเรียนเพื่อเช็คชื่อ (กด 'Clear photo' เพื่อสแกนคนต่อไป)")
+                    camera_image = st.camera_input("ถ่ายรูป QR Code", label_visibility="collapsed")
+                    
+                    if camera_image is not None:
+                        # แปลงภาพจากกล้องให้อ่านด้วย OpenCV
+                        file_bytes = np.asarray(bytearray(camera_image.read()), dtype=np.uint8)
+                        opencv_img = cv2.imdecode(file_bytes, 1)
+                        
+                        # ระบบค้นหาและถอดรหัส QR Code
+                        detector = cv2.QRCodeDetector()
+                        data, bbox, _ = detector.detectAndDecode(opencv_img)
+                        
+                        if data:
+                            scanned_cam = data.strip()
+                            if scanned_cam in st.session_state.att_data:
+                                if st.session_state.att_data[scanned_cam] == "มาเรียน":
+                                    st.warning(f"⚠️ รหัส {scanned_cam} สแกนไปแล้วครับ!")
+                                else:
+                                    st.session_state.att_data[scanned_cam] = "มาเรียน"
+                                    st.success(f"✅ สแกนสำเร็จ! เปลี่ยนสถานะรหัส {scanned_cam} เป็น 'มาเรียน'")
+                            else:
+                                st.error(f"❌ ไม่พบรหัส {scanned_cam} ในห้อง {selected_class}")
+                        else:
+                            st.error("⚠️ หา QR Code ไม่เจอ กรุณาจัดให้อยู่ตรงกลางและถ่ายให้ชัดเจนครับ")
 
+                # --- แบบที่ 2: เครื่องยิงบาร์โค้ดฮาร์ดแวร์ ---
+                with tab_hw:
+                    def process_scan():
+                        scanned = st.session_state.scanner_input.strip()
+                        if scanned in st.session_state.att_data:
+                            st.session_state.att_data[scanned] = "มาเรียน"
+                            st.session_state.scan_msg = f"✅ รหัส {scanned} เปลี่ยนสถานะเป็น 'มาเรียน' สำเร็จ!"
+                        else:
+                            st.session_state.scan_msg = f"❌ ไม่พบรหัส {scanned} ในห้อง {selected_class}"
+                        st.session_state.scanner_input = "" 
+
+                    st.text_input("คลิกให้เคอร์เซอร์กระพริบที่ช่องนี้ แล้วยิง QR Code ได้เลย", key="scanner_input", on_change=process_scan)
+                    if st.session_state.scan_msg:
+                        if "✅" in st.session_state.scan_msg: st.success(st.session_state.scan_msg)
+                        else: st.error(st.session_state.scan_msg)
+
+                st.markdown("<hr style='border-top:2px solid #eef2f5;'>", unsafe_allow_html=True)
+                
+                # สรุปยอดรวม
                 stats = pd.Series(st.session_state.att_data.values()).value_counts()
                 st.markdown(f"""
                     <div style='background-color:#fff; padding:15px; border-radius:10px; text-align:center; box-shadow:0 2px 5px rgba(0,0,0,0.02); margin-bottom:15px; border:1px solid #eef2f5;'>
@@ -177,7 +205,6 @@ if menu == "📝 บันทึกลงเวลา":
                     if not img_url or img_url.lower() == 'nan':
                         img_url = f"https://ui-avatars.com/api/?name={name}&background=random&color=fff&rounded=true&size=128"
 
-                    # แสดงกรอบสีเขียวอ่อนๆ ถ้านักเรียนคนนั้นสแกนแล้ว (มาเรียน)
                     bg_color = "#e8f5e9" if st.session_state.att_data.get(sid) == "มาเรียน" else "#ffffff"
 
                     st.markdown(f"<div style='background-color:{bg_color}; padding:10px; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:8px;'>", unsafe_allow_html=True)
@@ -299,7 +326,6 @@ elif menu == "⚙️ ตั้งค่าระบบ (Admin)":
             df_id_room = df_students[df_students['ชั้นเรียน'] == selected_id_class]
             
             st.markdown("---")
-            # สร้างการแสดงผลบัตรแบบ Grid (3 บัตร ต่อ 1 แถว)
             cols = st.columns(3)
             col_idx = 0
             
@@ -310,10 +336,8 @@ elif menu == "⚙️ ตั้งค่าระบบ (Admin)":
                 if not img_url or img_url.lower() == 'nan':
                     img_url = f"https://ui-avatars.com/api/?name={name}&background=1e56a0&color=fff&rounded=true&size=128"
                 
-                # นำรหัสนักเรียนไปแปลงเป็น QR Code
                 qr_base64 = generate_qr_base64(sid)
                 
-                # วาดบัตรประจำตัวในคอลัมน์
                 with cols[col_idx % 3]:
                     st.markdown(f"""
                     <div class="id-card">
