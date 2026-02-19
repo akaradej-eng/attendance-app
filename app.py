@@ -127,7 +127,7 @@ if menu == "📝 บันทึกลงเวลา":
         if not (term_start <= check_date <= term_end):
             st.error(f"⛔ ไม่สามารถบันทึกข้อมูลได้! วันที่ {date_str} อยู่นอกเหนือรอบการบันทึก")
         else:
-            # 🌟 ระบบดึงความจำอัจฉริยะ (ดึงคนที่เคยสแกนแล้วในวันนี้ มาโชว์สถานะต่อได้เลย)
+            # ระบบดึงความจำอัจฉริยะ 
             class_date_key = f"{selected_class}_{date_str}"
             if st.session_state.get('current_class_date') != class_date_key:
                 st.session_state.current_class_date = class_date_key
@@ -136,7 +136,7 @@ if menu == "📝 บันทึกลงเวลา":
                 st.session_state.scan_msg = ""
                 st.session_state.last_scanned = None 
                 
-                # โหลดข้อมูลเก่าจาก Google Sheets ของวันนี้
+                # โหลดข้อมูลเก่าของวันนี้
                 all_attendance = ws_attendance.get_all_records()
                 if all_attendance:
                     df_att_check = pd.DataFrame(all_attendance)
@@ -145,7 +145,56 @@ if menu == "📝 บันทึกลงเวลา":
                     for _, row in today_records.iterrows():
                         sid = str(row['รหัสนักเรียน'])
                         st.session_state.att_data[sid] = row['สถานะ']
-                        st.session_state.saved_today.add(sid) # จำไว้ว่าคนนี้เซฟลงชีตไปแล้ว
+                        st.session_state.saved_today.add(sid) 
+
+            # 🌟 ฟังก์ชันจัดการข้อมูลเมื่อแสกนสำเร็จ (ถูกเรียกใช้เมื่อมีข้อความเข้าช่อง text_input)
+            def handle_scan():
+                scanned = st.session_state.scanner_input.strip()
+                if not scanned: return
+
+                student_match = df_room[df_room['รหัสนักเรียน'] == scanned]
+                
+                if not student_match.empty:
+                    student_info = student_match.iloc[0]
+                    name = str(student_info.get('ชื่อ', 'ไม่ทราบชื่อ'))
+                    img_url = str(student_info.get('รูปภาพ', '')).strip()
+                    if not img_url or img_url.lower() == 'nan':
+                        img_url = f"https://ui-avatars.com/api/?name={name}&background=1e56a0&color=fff&rounded=true&size=128"
+
+                    if scanned in st.session_state.saved_today:
+                        st.session_state.scan_status = "warning"
+                        st.session_state.scan_msg = "บันทึกแล้ว (สแกนซ้ำ)"
+                    else:
+                        st.session_state.att_data[scanned] = "มาเรียน"
+                        st.session_state.scan_status = "success"
+                        st.session_state.scan_msg = "มาโรงเรียนแล้ว"
+                        
+                        # บันทึกลง Google Sheets ทันที
+                        row_data = [date_str, scanned, name, selected_class, "มาเรียน", recorded_by]
+                        try:
+                            ws_attendance.append_row(row_data)
+                            try:
+                                ws_class = sh.worksheet(selected_class)
+                            except gspread.exceptions.WorksheetNotFound:
+                                ws_class = sh.add_worksheet(title=selected_class, rows=100, cols=6)
+                                ws_class.append_row(["วันที่", "รหัสนักเรียน", "ชื่อ", "ชั้นเรียน", "สถานะ", "ผู้บันทึก"])
+                            ws_class.append_row(row_data)
+                            st.session_state.saved_today.add(scanned)
+                        except Exception as e:
+                            st.session_state.scan_status = "error"
+                            st.session_state.scan_msg = f"เซฟลงชีตไม่สำเร็จ: {e}"
+
+                    st.session_state.last_scanned = {
+                        "id": scanned, "name": name, "img": img_url, 
+                        "status": st.session_state.scan_status, "msg": st.session_state.scan_msg
+                    }
+                else:
+                    st.session_state.scan_status = "error"
+                    st.session_state.scan_msg = f"ไม่พบรหัส {scanned} ในห้อง {selected_class}"
+                    st.session_state.last_scanned = None
+                
+                # เคลียร์ช่องรับข้อมูลเตรียมรอคนต่อไป
+                st.session_state.scanner_input = ""
 
             # ==========================================
             # 📸 ส่วนที่ 1: ระบบกล้อง (สแกนปุ๊บ บันทึกปั๊บ ทันที!)
@@ -159,56 +208,8 @@ if menu == "📝 บันทึกลงเวลา":
                 with st.container(border=True):
                     st.caption("ส่อง QR Code ที่กล้อง ระบบจะเช็คชื่อและ **บันทึกลง Google Sheets ทันที**")
                     
-                    scanned_input = st.text_input("scan_target", key="scanner_input", label_visibility="collapsed", placeholder="ช่องรับรหัสอัตโนมัติ")
-
-                    if scanned_input:
-                        scanned = scanned_input.strip()
-                        student_match = df_room[df_room['รหัสนักเรียน'] == scanned]
-                        
-                        if not student_match.empty:
-                            student_info = student_match.iloc[0]
-                            name = str(student_info.get('ชื่อ', 'ไม่ทราบชื่อ'))
-                            img_url = str(student_info.get('รูปภาพ', '')).strip()
-                            if not img_url or img_url.lower() == 'nan':
-                                img_url = f"https://ui-avatars.com/api/?name={name}&background=1e56a0&color=fff&rounded=true&size=128"
-
-                            # 🌟 ตรวจสอบว่าเคยเซฟลงชีตไปหรือยัง
-                            if scanned in st.session_state.saved_today:
-                                st.session_state.scan_status = "warning"
-                                st.session_state.scan_msg = "บันทึกแล้ว (สแกนซ้ำ)"
-                            else:
-                                st.session_state.att_data[scanned] = "มาเรียน"
-                                st.session_state.scan_status = "success"
-                                st.session_state.scan_msg = "มาโรงเรียนแล้ว"
-                                
-                                # ⚡ บันทึกลง Google Sheets ทันที ไม่ต้องรอ! ⚡
-                                row_data = [date_str, scanned, name, selected_class, "มาเรียน", recorded_by]
-                                try:
-                                    ws_attendance.append_row(row_data)
-                                    try:
-                                        ws_class = sh.worksheet(selected_class)
-                                    except gspread.exceptions.WorksheetNotFound:
-                                        ws_class = sh.add_worksheet(title=selected_class, rows=100, cols=6)
-                                        ws_class.append_row(["วันที่", "รหัสนักเรียน", "ชื่อ", "ชั้นเรียน", "สถานะ", "ผู้บันทึก"])
-                                    ws_class.append_row(row_data)
-                                    
-                                    # จำไว้ว่าคนนี้บันทึกเรียบร้อยแล้ว
-                                    st.session_state.saved_today.add(scanned)
-                                except Exception as e:
-                                    st.session_state.scan_status = "error"
-                                    st.session_state.scan_msg = f"สแกนติด แต่เซฟลงชีตไม่สำเร็จ: {e}"
-
-                            st.session_state.last_scanned = {
-                                "id": scanned, "name": name, "img": img_url, 
-                                "status": st.session_state.scan_status, "msg": st.session_state.scan_msg
-                            }
-                        else:
-                            st.session_state.scan_status = "error"
-                            st.session_state.scan_msg = f"ไม่พบรหัส {scanned} ในห้อง {selected_class}"
-                            st.session_state.last_scanned = None
-                        
-                        st.session_state.scanner_input = ""
-                        st.rerun()
+                    # 🌟 ใช้ฟังก์ชัน Callback (on_change) เพื่อบังคับให้ Streamlit ทำงานทันที
+                    st.text_input("scan_target", key="scanner_input", label_visibility="collapsed", placeholder="ช่องรับรหัสอัตโนมัติ", on_change=handle_scan)
 
                     # --- โชว์ป๊อปอัปบัตรนักเรียนหลังจากการสแกน ---
                     if st.session_state.last_scanned:
@@ -230,7 +231,7 @@ if menu == "📝 บันทึกลงเวลา":
                     elif st.session_state.scan_status == "error":
                         st.error(f"❌ {st.session_state.scan_msg}")
 
-                    # Javascript กล้องสแกน
+                    # 🌟 Javascript กล้องสแกนแบบบังคับกด Enter ขั้นสุด
                     components.html(
                         """
                         <div id="reader" style="width: 100%; border-radius: 10px; overflow: hidden; border: 2px solid #eef2f5;"></div>
@@ -238,18 +239,32 @@ if menu == "📝 บันทึกลงเวลา":
                         <script>
                         function onScanSuccess(decodedText, decodedResult) {
                             const parentDoc = window.parent.document;
-                            const inputField = parentDoc.querySelector('input[aria-label="scan_target"]');
+                            // หาช่อง Streamlit โดยการอ้างอิงจาก Placeholder
+                            const inputField = parentDoc.querySelector('input[placeholder="ช่องรับรหัสอัตโนมัติ"]');
+                            
                             if(inputField) {
                                 let lastScanned = sessionStorage.getItem("lastScanned");
                                 let lastTime = sessionStorage.getItem("lastTime");
                                 let now = Date.now();
-                                if(lastScanned === decodedText && (now - lastTime) < 2500) { return; }
+                                
+                                // ป้องกันการสแกนซ้ำติดๆ กันใน 3 วินาที (จากกล้อง)
+                                if(lastScanned === decodedText && (now - lastTime) < 3000) { return; }
                                 sessionStorage.setItem("lastScanned", decodedText);
                                 sessionStorage.setItem("lastTime", now);
+                                
+                                // ยัดค่ารหัสเข้าไปในช่อง
                                 const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
                                 nativeInputValueSetter.call(inputField, decodedText);
+                                
+                                // สั่ง Event กระตุ้นให้ Streamlit รู้ตัว
                                 inputField.dispatchEvent(new Event('input', { bubbles: true }));
-                                inputField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+                                inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                                
+                                // บังคับกดปุ่ม Enter
+                                const enterEvent = new KeyboardEvent('keydown', {
+                                    key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true
+                                });
+                                inputField.dispatchEvent(enterEvent);
                             }
                         }
                         function onScanFailure(error) { }
@@ -265,7 +280,6 @@ if menu == "📝 บันทึกลงเวลา":
             st.markdown("---")
             st.markdown("### 📋 ตรวจสอบรายชื่อทั้งหมด")
             
-            # คำนวณยอดจากข้อมูลปัจจุบัน
             stats = pd.Series(st.session_state.att_data.values()).value_counts()
             st.markdown(f"""
                 <div style='background-color:#fff; padding:15px; border-radius:10px; text-align:center; box-shadow:0 2px 5px rgba(0,0,0,0.02); margin-bottom:15px; border:1px solid #eef2f5;'>
@@ -295,7 +309,6 @@ if menu == "📝 บันทึกลงเวลา":
                     new_status = st.selectbox("สถานะ", status_options, key=f"sel_{sid}", label_visibility="collapsed", index=status_options.index(current_val))
                     if new_status != current_val:
                         st.session_state.att_data[sid] = new_status
-                        # ถ้ายกเลิกสถานะ ก็เอาออกจาก saved_today เพื่อให้กดปุ่มบันทึกใหม่ได้
                         if new_status == "ขาด" and sid in st.session_state.saved_today:
                             st.session_state.saved_today.remove(sid)
                         st.rerun()
@@ -309,11 +322,10 @@ if menu == "📝 บันทึกลงเวลา":
                     final_records = []
                     for _, r in df_room.iterrows():
                         sid = str(r['รหัสนักเรียน'])
-                        # 🌟 กรองบันทึกเฉพาะคนที่ยังไม่เคยเซฟในวันนี้!
                         if sid not in st.session_state.saved_today:
                             status = st.session_state.att_data.get(sid, "ขาด")
                             final_records.append([date_str, sid, r.get('ชื่อ',''), r.get('ชั้นเรียน',''), status, recorded_by])
-                            st.session_state.saved_today.add(sid) # จำไว้ว่าเซฟแล้ว
+                            st.session_state.saved_today.add(sid)
                             
                     if final_records:
                         ws_attendance.append_rows(final_records)
@@ -332,12 +344,10 @@ if menu == "📝 บันทึกลงเวลา":
                     st.error(f"เกิดข้อผิดพลาด: {e}")
 
 # ==========================================
-# 📊 หน้าที่ 2: แดชบอร์ด (วิเคราะห์ข้อมูลอัจฉริยะ)
+# 📊 หน้าที่ 2: แดชบอร์ด (วิเคราะห์ข้อมูล)
 # ==========================================
 elif menu == "📊 แดชบอร์ด (วิเคราะห์ข้อมูล)":
     st.markdown("<h2 style='color: #212529; font-weight:700;'>📊 ศูนย์วิเคราะห์ข้อมูล (Analytics)</h2>", unsafe_allow_html=True)
-    
-    # ดึงรายชื่อเด็กทั้งหมดจากชีต Students มาใช้คำนวณยอดเต็ม
     df_all_students = pd.DataFrame(ws_students.get_all_records())
     att_data = ws_attendance.get_all_records()
     
@@ -353,8 +363,6 @@ elif menu == "📊 แดชบอร์ด (วิเคราะห์ข้�
                 with col2: selected_class_dash = st.multiselect("เลือกชั้นเรียน (ปล่อยว่าง = ทั้งโรงเรียน)", all_classes, default=all_classes)
 
             if not selected_class_dash: selected_class_dash = all_classes
-            
-            # 🌟 การคำนวณอัจฉริยะ (อิงจากยอดเด็กเต็มห้อง หักลบคนมาเรียน)
             total_std = len(df_all_students[df_all_students['ชั้นเรียน'].isin(selected_class_dash)])
             
             mask = (df_att['วันที่'] == selected_date_dash) & (df_att['ชั้นเรียน'].isin(selected_class_dash))
@@ -364,10 +372,8 @@ elif menu == "📊 แดชบอร์ด (วิเคราะห์ข้�
             late = len(df_filtered[df_filtered['สถานะ'] == 'สาย'])
             leave = len(df_filtered[df_filtered['สถานะ'].isin(['ลา', 'ป่วย'])])
             
-            # คนที่เหลือที่ยังไม่ได้สแกน หรือบันทึกว่าขาด ให้ถือว่าขาดทั้งหมด
             absent = total_std - present - late - leave
             if absent < 0: absent = 0
-            
             percent = (present / total_std) * 100 if total_std > 0 else 0
 
             c1, c2, c3, c4 = st.columns(4)
@@ -376,7 +382,6 @@ elif menu == "📊 แดชบอร์ด (วิเคราะห์ข้�
             with c3: st.markdown(f"""<div class="pluto-metric border-red"><div class="metric-info"><h4>ลา/ขาด/สาย</h4><h2>{absent + late + leave}</h2></div></div>""", unsafe_allow_html=True)
             with c4: st.markdown(f"""<div class="pluto-metric border-yellow"><div class="metric-info"><h4>เปอร์เซ็นต์</h4><h2>{percent:.1f}%</h2></div></div>""", unsafe_allow_html=True)
 
-            # โชว์รายชื่อที่ถูกบันทึกแล้วในวันนั้น
             st.markdown("<b>ข้อมูลที่บันทึกแล้วในระบบ</b>", unsafe_allow_html=True)
             st.dataframe(df_filtered, hide_index=True, use_container_width=True)
 
@@ -396,7 +401,7 @@ elif menu == "📊 แดชบอร์ด (วิเคราะห์ข้�
         st.warning("ยังไม่มีข้อมูลในระบบ หรือ ชีต Students ว่างเปล่า")
 
 # ==========================================
-# ⚙️ หน้าที่ 3: ตั้งค่าระบบ (Admin & บัตร QR)
+# ⚙️ หน้าที่ 3: ตั้งค่าระบบ (Admin)
 # ==========================================
 elif menu == "⚙️ ตั้งค่าระบบ (Admin)":
     st.markdown("<h2 style='color: #212529; font-weight:700;'>⚙️ ผู้ดูแลระบบ (Admin Panel)</h2>", unsafe_allow_html=True)
