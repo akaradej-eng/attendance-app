@@ -72,14 +72,16 @@ st.markdown("""
     .id-name { font-size: 18px; font-weight: 600; color: #333; margin-bottom: 5px;}
     .id-detail { font-size: 14px; color: #666; }
     
+    /* อัปเกรดสไตล์การ์ดโชว์ผลสแกนให้ชัดเจนขึ้น */
     .scan-result-card {
-        display: flex; align-items: center; background: white; padding: 15px; 
-        border-radius: 10px; border-left: 6px solid #28a745; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 15px;
+        display: flex; align-items: center; background: #f0fdf4; padding: 20px; 
+        border-radius: 12px; border-left: 8px solid #28a745; box-shadow: 0 4px 10px rgba(0,0,0,0.08); margin-bottom: 15px;
     }
-    .scan-result-card.warning { border-left: 6px solid #ffc107; }
-    .scan-result-card img { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; margin-right: 15px; border: 2px solid #eee; }
-    .scan-result-info h3 { margin: 0; font-size: 18px; color: #333; }
-    .scan-result-info p { margin: 0; font-size: 14px; color: #666; }
+    .scan-result-card.warning { background: #fffbeb; border-left: 8px solid #ffc107; }
+    .scan-result-card img { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; margin-right: 20px; border: 3px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.1);}
+    .scan-result-info h3 { margin: 0 0 5px 0; font-size: 22px; color: #1f2937; font-weight: 700;}
+    .scan-result-info p.id-text { margin: 0; font-size: 16px; color: #4b5563; }
+    .scan-result-info p.status-text { margin: 0 0 5px 0; font-size: 18px; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -93,10 +95,10 @@ with st.sidebar:
     st.info(f"📅 รอบการบันทึก:\n{term_start.strftime('%d/%m/%Y')} ถึง {term_end.strftime('%d/%m/%Y')}")
 
 # ==========================================
-# 🟢 หน้าที่ 1: บันทึกลงเวลา (ไฮบริด: แมนนวล + กล้องสแกนทันที)
+# 🟢 หน้าที่ 1: บันทึกลงเวลา (พร้อมระบบสแกนชัวร์ 100%)
 # ==========================================
 if menu == "📝 บันทึกลงเวลา":
-    # 🌟 สร้างหน่วยความจำพื้นฐานไว้แต่เนิ่นๆ ป้องกันตัวแปรหาย (แก้บัค AttributeError)
+    # 🌟 เตรียมหน่วยความจำให้พร้อมเสมอ
     if 'scan_msg' not in st.session_state: st.session_state.scan_msg = ""
     if 'scan_status' not in st.session_state: st.session_state.scan_status = "info"
     if 'last_scanned' not in st.session_state: st.session_state.last_scanned = None
@@ -118,7 +120,9 @@ if menu == "📝 บันทึกลงเวลา":
             recorded_by = st.radio("👤 ผู้บันทึก:", teachers, horizontal=True)
 
         df_room = df_students[df_students['ชั้นเรียน'] == selected_class].copy()
-        df_room['รหัสนักเรียน'] = df_room['รหัสนักเรียน'].astype(str)
+        
+        # 🌟 บังคับแปลงรหัสนักเรียนเป็น String และตัดช่องว่างทิ้งให้หมด (แก้ปัญหาแมตช์รหัสไม่เจอ)
+        df_room['รหัสนักเรียน'] = df_room['รหัสนักเรียน'].astype(str).str.strip()
         date_str = check_date.strftime("%d/%m/%Y")
 
         if not (term_start <= check_date <= term_end):
@@ -134,75 +138,87 @@ if menu == "📝 บันทึกลงเวลา":
             if is_already_checked:
                 st.error(f"⚠️ ห้อง {selected_class} บันทึกข้อมูลวันที่ {date_str} เรียบร้อยแล้ว")
             else:
+                # รีเซ็ตค่าเมื่อเปลี่ยนห้อง
                 if 'current_class' not in st.session_state or st.session_state.current_class != selected_class:
                     st.session_state.current_class = selected_class
                     st.session_state.att_data = {str(r['รหัสนักเรียน']): "ขาด" for _, r in df_room.iterrows()}
                     st.session_state.scan_msg = ""
                     st.session_state.scan_status = "info"
                     st.session_state.last_scanned = None 
-                
-                def process_scan():
-                    scanned = st.session_state.get('scanner_input', '').strip()
-                    if scanned:
-                        student_match = df_room[df_room['รหัสนักเรียน'] == scanned]
-                        
-                        if not student_match.empty:
-                            student_info = student_match.iloc[0]
-                            name = str(student_info.get('ชื่อ', 'ไม่ทราบชื่อ'))
-                            img_url = str(student_info.get('รูปภาพ', '')).strip()
-                            if not img_url or img_url.lower() == 'nan':
-                                img_url = f"https://ui-avatars.com/api/?name={name}&background=1e56a0&color=fff&rounded=true&size=128"
 
-                            current_status = st.session_state.att_data.get(scanned, "ขาด")
-                            
-                            if current_status == "มาเรียน":
-                                st.session_state.scan_msg = f"สแกนซ้ำ!"
-                                st.session_state.scan_status = "warning"
-                            else:
-                                st.session_state.att_data[scanned] = "มาเรียน"
-                                st.session_state.scan_msg = f"เช็คชื่อสำเร็จ!"
-                                st.session_state.scan_status = "success"
-                            
-                            st.session_state.last_scanned = {
-                                "id": scanned, "name": name, "img": img_url, "status": st.session_state.scan_status
-                            }
-                        else:
-                            st.session_state.scan_msg = f"ไม่พบรหัสนักเรียน {scanned} ในห้อง {selected_class}"
-                            st.session_state.scan_status = "error"
-                            st.session_state.last_scanned = None
-                        
-                        st.session_state.scanner_input = ""
-
+                # ==========================================
+                # 📸 ส่วนที่ 1: ระบบกล้องเปิด/ปิด
+                # ==========================================
                 st.markdown("---")
                 col_toggle, col_empty = st.columns([1, 1])
                 with col_toggle:
-                    use_camera = st.toggle("📷 เปิดกล้องสแกน QR Code ทันที", value=False)
+                    use_camera = st.toggle("📷 เปิดสวิตช์กล้องสแกน QR Code", value=False)
                 
                 if use_camera:
                     with st.container(border=True):
-                        st.caption("นำบัตร QR Code มาส่องที่กล้อง ระบบจะอ่านอัตโนมัติ")
-                        st.text_input("scan_target", key="scanner_input", label_visibility="collapsed", on_change=process_scan)
+                        st.caption("ส่อง QR Code ที่กล้อง ระบบจะเช็คชื่อให้ทันที")
+                        
+                        # 🌟 รับค่าตรงๆ ไม่ผ่านฟังก์ชัน on_change เพื่อแก้ปัญหาการเซฟไม่ติด
+                        scanned_input = st.text_input("scan_target", key="scanner_input", label_visibility="collapsed", placeholder="ช่องรับรหัส")
 
-                        if st.session_state.get('last_scanned'):
+                        # --- ระบบประมวลผลการสแกนแบบ Real-time ---
+                        if scanned_input:
+                            scanned = scanned_input.strip()
+                            student_match = df_room[df_room['รหัสนักเรียน'] == scanned]
+                            
+                            if not student_match.empty:
+                                student_info = student_match.iloc[0]
+                                name = str(student_info.get('ชื่อ', 'ไม่ทราบชื่อ'))
+                                img_url = str(student_info.get('รูปภาพ', '')).strip()
+                                if not img_url or img_url.lower() == 'nan':
+                                    img_url = f"https://ui-avatars.com/api/?name={name}&background=1e56a0&color=fff&rounded=true&size=128"
+
+                                current_status = st.session_state.att_data.get(scanned, "ขาด")
+                                
+                                # เช็คเงื่อนไขตามที่คุณครูต้องการ
+                                if current_status == "มาเรียน":
+                                    st.session_state.scan_status = "warning"
+                                    st.session_state.scan_msg = "บันทึกแล้ว (สแกนซ้ำ)"
+                                else:
+                                    st.session_state.att_data[scanned] = "มาเรียน"
+                                    st.session_state.scan_status = "success"
+                                    st.session_state.scan_msg = "มาโรงเรียนแล้ว"
+                                
+                                # เก็บข้อมูลไว้แสดงในการ์ด
+                                st.session_state.last_scanned = {
+                                    "id": scanned, "name": name, "img": img_url, 
+                                    "status": st.session_state.scan_status, "msg": st.session_state.scan_msg
+                                }
+                            else:
+                                st.session_state.scan_status = "error"
+                                st.session_state.scan_msg = f"ไม่พบรหัส {scanned} ในห้อง {selected_class}"
+                                st.session_state.last_scanned = None
+                            
+                            # เคลียร์ช่องให้ว่าง แล้วสั่งรีเฟรชหน้าเว็บทันทีเพื่ออัปเดตข้อมูลด้านล่าง
+                            st.session_state.scanner_input = ""
+                            st.rerun()
+
+                        # --- แสดงผลป๊อปอัปบัตรนักเรียนหลังจากการสแกน ---
+                        if st.session_state.last_scanned:
                             ls = st.session_state.last_scanned
                             card_class = "warning" if ls['status'] == "warning" else ""
                             icon = "⚠️" if ls['status'] == "warning" else "✅"
-                            msg = "เช็คชื่อไปแล้ว (สแกนซ้ำ)" if ls['status'] == "warning" else "บันทึก 'มาเรียน' สำเร็จ"
-                            color = "#ffc107" if ls['status'] == "warning" else "#28a745"
+                            color = "#d97706" if ls['status'] == "warning" else "#16a34a" # สีส้มเหลือง หรือ สีเขียว
 
                             st.markdown(f"""
                             <div class="scan-result-card {card_class}">
                                 <img src="{ls['img']}">
                                 <div class="scan-result-info">
-                                    <p style="color: {color}; font-weight: bold; margin-bottom: 2px;">{icon} {msg}</p>
+                                    <p class="status-text" style="color: {color};">{icon} {ls['msg']}</p>
                                     <h3>{ls['name']}</h3>
-                                    <p>รหัสประจำตัว: {ls['id']}</p>
+                                    <p class="id-text">รหัสประจำตัว: <b>{ls['id']}</b></p>
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
-                        elif st.session_state.get('scan_status') == "error":
-                            st.error(f"❌ {st.session_state.get('scan_msg')}")
+                        elif st.session_state.scan_status == "error":
+                            st.error(f"❌ {st.session_state.scan_msg}")
 
+                        # Javascript สำหรับกล้อง
                         components.html(
                             """
                             <div id="reader" style="width: 100%; border-radius: 10px; overflow: hidden; border: 2px solid #eef2f5;"></div>
@@ -217,7 +233,8 @@ if menu == "📝 บันทึกลงเวลา":
                                     let lastTime = sessionStorage.getItem("lastTime");
                                     let now = Date.now();
 
-                                    if(lastScanned === decodedText && (now - lastTime) < 2500) { return; }
+                                    // กันเหนียว ไม่ให้กล้องส่งรหัสเดิมรัวๆ ภายใน 2 วินาที
+                                    if(lastScanned === decodedText && (now - lastTime) < 2000) { return; }
                                     sessionStorage.setItem("lastScanned", decodedText);
                                     sessionStorage.setItem("lastTime", now);
 
@@ -229,23 +246,19 @@ if menu == "📝 บันทึกลงเวลา":
                             }
                             function onScanFailure(error) { }
                             
-                           // บังคับให้ใช้กล้องหลัง (environment) เป็นหลัก และย่อขนาดกล่องโฟกัสให้สแกนง่ายขึ้น
-let html5QrcodeScanner = new Html5QrcodeScanner(
-    "reader", 
-    { 
-        fps: 15, 
-        qrbox: {width: 250, height: 250},
-        videoConstraints: { facingMode: "environment" } 
-    }, 
-    false
-);
+                            // บังคับใช้กล้องหลังมือถือเป็นหลัก
+                            let html5QrcodeScanner = new Html5QrcodeScanner(
+                                "reader", { fps: 10, qrbox: {width: 250, height: 250}, videoConstraints: { facingMode: "environment" } }, false);
                             html5QrcodeScanner.render(onScanSuccess, onScanFailure);
                             </script>
                             """, height=350,
                         )
 
+                # ==========================================
+                # 📋 ส่วนที่ 2: ระบบรายชื่อแบบเดิม (อัปเดตสดๆ เมื่อสแกนติด)
+                # ==========================================
                 st.markdown("---")
-                st.markdown("### 📋 รายชื่อนักเรียน (ตรวจทานและแก้ไขได้)")
+                st.markdown("### 📋 รายชื่อนักเรียนทั้งหมด")
                 stats = pd.Series(st.session_state.att_data.values()).value_counts()
                 st.markdown(f"""
                     <div style='background-color:#fff; padding:15px; border-radius:10px; text-align:center; box-shadow:0 2px 5px rgba(0,0,0,0.02); margin-bottom:15px; border:1px solid #eef2f5;'>
@@ -411,4 +424,3 @@ elif menu == "⚙️ ตั้งค่าระบบ (Admin)":
                     </div>
                     """, unsafe_allow_html=True)
                 col_idx += 1
-
