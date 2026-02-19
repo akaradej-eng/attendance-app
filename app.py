@@ -72,7 +72,6 @@ st.markdown("""
     .id-name { font-size: 18px; font-weight: 600; color: #333; margin-bottom: 5px;}
     .id-detail { font-size: 14px; color: #666; }
     
-    /* สไตล์การ์ดโชว์ผลสแกน */
     .scan-result-card {
         display: flex; align-items: center; background: white; padding: 15px; 
         border-radius: 10px; border-left: 6px solid #28a745; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 15px;
@@ -97,6 +96,11 @@ with st.sidebar:
 # 🟢 หน้าที่ 1: บันทึกลงเวลา (ไฮบริด: แมนนวล + กล้องสแกนทันที)
 # ==========================================
 if menu == "📝 บันทึกลงเวลา":
+    # 🌟 สร้างหน่วยความจำพื้นฐานไว้แต่เนิ่นๆ ป้องกันตัวแปรหาย (แก้บัค AttributeError)
+    if 'scan_msg' not in st.session_state: st.session_state.scan_msg = ""
+    if 'scan_status' not in st.session_state: st.session_state.scan_status = "info"
+    if 'last_scanned' not in st.session_state: st.session_state.last_scanned = None
+
     st.markdown("<h2 style='color: #212529; font-weight:700;'>📝 บันทึกลงเวลาเรียน</h2>", unsafe_allow_html=True)
     data = ws_students.get_all_records()
 
@@ -114,7 +118,6 @@ if menu == "📝 บันทึกลงเวลา":
             recorded_by = st.radio("👤 ผู้บันทึก:", teachers, horizontal=True)
 
         df_room = df_students[df_students['ชั้นเรียน'] == selected_class].copy()
-        # แปลงรหัสนักเรียนเป็น String เพื่อป้องกันปัญหาตอนเปรียบเทียบ
         df_room['รหัสนักเรียน'] = df_room['รหัสนักเรียน'].astype(str)
         date_str = check_date.strftime("%d/%m/%Y")
 
@@ -131,19 +134,16 @@ if menu == "📝 บันทึกลงเวลา":
             if is_already_checked:
                 st.error(f"⚠️ ห้อง {selected_class} บันทึกข้อมูลวันที่ {date_str} เรียบร้อยแล้ว")
             else:
-                # 🌟 ระบบรีเซ็ตค่าเมื่อเปลี่ยนห้อง
                 if 'current_class' not in st.session_state or st.session_state.current_class != selected_class:
                     st.session_state.current_class = selected_class
                     st.session_state.att_data = {str(r['รหัสนักเรียน']): "ขาด" for _, r in df_room.iterrows()}
                     st.session_state.scan_msg = ""
                     st.session_state.scan_status = "info"
-                    st.session_state.last_scanned = None # เก็บข้อมูลเด็กล่าสุดที่สแกน
+                    st.session_state.last_scanned = None 
                 
-                # 🌟 ฟังก์ชันจัดการเมื่อสแกนเจอ QR
                 def process_scan():
-                    scanned = st.session_state.scanner_input.strip()
+                    scanned = st.session_state.get('scanner_input', '').strip()
                     if scanned:
-                        # หารายชื่อเด็กจาก DataFrame
                         student_match = df_room[df_room['รหัสนักเรียน'] == scanned]
                         
                         if not student_match.empty:
@@ -156,16 +156,13 @@ if menu == "📝 บันทึกลงเวลา":
                             current_status = st.session_state.att_data.get(scanned, "ขาด")
                             
                             if current_status == "มาเรียน":
-                                # 🟡 สแกนซ้ำ
                                 st.session_state.scan_msg = f"สแกนซ้ำ!"
                                 st.session_state.scan_status = "warning"
                             else:
-                                # 🟢 สแกนสำเร็จ
                                 st.session_state.att_data[scanned] = "มาเรียน"
                                 st.session_state.scan_msg = f"เช็คชื่อสำเร็จ!"
                                 st.session_state.scan_status = "success"
                             
-                            # บันทึกข้อมูลเด็กคนล่าสุดไว้โชว์
                             st.session_state.last_scanned = {
                                 "id": scanned, "name": name, "img": img_url, "status": st.session_state.scan_status
                             }
@@ -176,23 +173,16 @@ if menu == "📝 บันทึกลงเวลา":
                         
                         st.session_state.scanner_input = ""
 
-                # ==========================================
-                # 📸 ส่วนที่ 1: ระบบกล้อง (เปิด/ปิด ได้ตามต้องการ)
-                # ==========================================
                 st.markdown("---")
                 col_toggle, col_empty = st.columns([1, 1])
                 with col_toggle:
-                    # สวิตช์เปิด-ปิดกล้อง
                     use_camera = st.toggle("📷 เปิดกล้องสแกน QR Code ทันที", value=False)
                 
                 if use_camera:
                     with st.container(border=True):
                         st.caption("นำบัตร QR Code มาส่องที่กล้อง ระบบจะอ่านอัตโนมัติ")
-                        
-                        # กล่องรับค่าจาก JS (ซ่อนไว้)
                         st.text_input("scan_target", key="scanner_input", label_visibility="collapsed", on_change=process_scan)
 
-                        # แสดงผลข้อมูลนักเรียนที่พึ่งสแกนล่าสุด
                         if st.session_state.get('last_scanned'):
                             ls = st.session_state.last_scanned
                             card_class = "warning" if ls['status'] == "warning" else ""
@@ -210,10 +200,9 @@ if menu == "📝 บันทึกลงเวลา":
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
-                        elif st.session_state.scan_status == "error":
-                            st.error(f"❌ {st.session_state.scan_msg}")
+                        elif st.session_state.get('scan_status') == "error":
+                            st.error(f"❌ {st.session_state.get('scan_msg')}")
 
-                        # Javascript กล้องสแกน
                         components.html(
                             """
                             <div id="reader" style="width: 100%; border-radius: 10px; overflow: hidden; border: 2px solid #eef2f5;"></div>
@@ -246,9 +235,6 @@ if menu == "📝 บันทึกลงเวลา":
                             """, height=350,
                         )
 
-                # ==========================================
-                # 📋 ส่วนที่ 2: ระบบรายชื่อแบบเดิม (โชว์เสมอ)
-                # ==========================================
                 st.markdown("---")
                 st.markdown("### 📋 รายชื่อนักเรียน (ตรวจทานและแก้ไขได้)")
                 stats = pd.Series(st.session_state.att_data.values()).value_counts()
