@@ -71,6 +71,16 @@ st.markdown("""
     .id-card img.qr { width: 120px; margin-top: 10px;}
     .id-name { font-size: 18px; font-weight: 600; color: #333; margin-bottom: 5px;}
     .id-detail { font-size: 14px; color: #666; }
+    
+    /* สไตล์การ์ดโชว์ผลสแกน */
+    .scan-result-card {
+        display: flex; align-items: center; background: white; padding: 15px; 
+        border-radius: 10px; border-left: 6px solid #28a745; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 15px;
+    }
+    .scan-result-card.warning { border-left: 6px solid #ffc107; }
+    .scan-result-card img { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; margin-right: 15px; border: 2px solid #eee; }
+    .scan-result-info h3 { margin: 0; font-size: 18px; color: #333; }
+    .scan-result-info p { margin: 0; font-size: 14px; color: #666; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -84,7 +94,7 @@ with st.sidebar:
     st.info(f"📅 รอบการบันทึก:\n{term_start.strftime('%d/%m/%Y')} ถึง {term_end.strftime('%d/%m/%Y')}")
 
 # ==========================================
-# 🟢 หน้าที่ 1: บันทึกลงเวลา (Real-time Scanner & เช็คซ้ำ)
+# 🟢 หน้าที่ 1: บันทึกลงเวลา (ไฮบริด: แมนนวล + กล้องสแกนทันที)
 # ==========================================
 if menu == "📝 บันทึกลงเวลา":
     st.markdown("<h2 style='color: #212529; font-weight:700;'>📝 บันทึกลงเวลาเรียน</h2>", unsafe_allow_html=True)
@@ -104,6 +114,8 @@ if menu == "📝 บันทึกลงเวลา":
             recorded_by = st.radio("👤 ผู้บันทึก:", teachers, horizontal=True)
 
         df_room = df_students[df_students['ชั้นเรียน'] == selected_class].copy()
+        # แปลงรหัสนักเรียนเป็น String เพื่อป้องกันปัญหาตอนเปรียบเทียบ
+        df_room['รหัสนักเรียน'] = df_room['รหัสนักเรียน'].astype(str)
         date_str = check_date.strftime("%d/%m/%Y")
 
         if not (term_start <= check_date <= term_end):
@@ -119,94 +131,126 @@ if menu == "📝 บันทึกลงเวลา":
             if is_already_checked:
                 st.error(f"⚠️ ห้อง {selected_class} บันทึกข้อมูลวันที่ {date_str} เรียบร้อยแล้ว")
             else:
+                # 🌟 ระบบรีเซ็ตค่าเมื่อเปลี่ยนห้อง
                 if 'current_class' not in st.session_state or st.session_state.current_class != selected_class:
                     st.session_state.current_class = selected_class
-                    # ตั้งค่าเริ่มต้นให้ทุกคนเป็น "ขาด"
                     st.session_state.att_data = {str(r['รหัสนักเรียน']): "ขาด" for _, r in df_room.iterrows()}
                     st.session_state.scan_msg = ""
-                    st.session_state.scan_status = "info" # เอาไว้บอกว่าให้โชว์สีเขียวหรือสีเหลือง
+                    st.session_state.scan_status = "info"
+                    st.session_state.last_scanned = None # เก็บข้อมูลเด็กล่าสุดที่สแกน
                 
-                # 🌟 ฟังก์ชันจัดการข้อมูลเวลากล้องจับภาพได้
+                # 🌟 ฟังก์ชันจัดการเมื่อสแกนเจอ QR
                 def process_scan():
                     scanned = st.session_state.scanner_input.strip()
                     if scanned:
-                        if scanned in st.session_state.att_data:
-                            current_status = st.session_state.att_data[scanned]
+                        # หารายชื่อเด็กจาก DataFrame
+                        student_match = df_room[df_room['รหัสนักเรียน'] == scanned]
+                        
+                        if not student_match.empty:
+                            student_info = student_match.iloc[0]
+                            name = str(student_info.get('ชื่อ', 'ไม่ทราบชื่อ'))
+                            img_url = str(student_info.get('รูปภาพ', '')).strip()
+                            if not img_url or img_url.lower() == 'nan':
+                                img_url = f"https://ui-avatars.com/api/?name={name}&background=1e56a0&color=fff&rounded=true&size=128"
+
+                            current_status = st.session_state.att_data.get(scanned, "ขาด")
+                            
                             if current_status == "มาเรียน":
-                                # 🟡 ระบบป้องกันสแกนซ้ำ
-                                st.session_state.scan_msg = f"⚠️ สแกนซ้ำ! รหัส {scanned} ถูกเช็คชื่อว่ามาเรียนไปแล้วครับ"
+                                # 🟡 สแกนซ้ำ
+                                st.session_state.scan_msg = f"สแกนซ้ำ!"
                                 st.session_state.scan_status = "warning"
                             else:
-                                # 🟢 สแกนครั้งแรก
+                                # 🟢 สแกนสำเร็จ
                                 st.session_state.att_data[scanned] = "มาเรียน"
-                                st.session_state.scan_msg = f"✅ เช็คชื่อสำเร็จ! รหัส {scanned} สถานะ: มาเรียน"
+                                st.session_state.scan_msg = f"เช็คชื่อสำเร็จ!"
                                 st.session_state.scan_status = "success"
+                            
+                            # บันทึกข้อมูลเด็กคนล่าสุดไว้โชว์
+                            st.session_state.last_scanned = {
+                                "id": scanned, "name": name, "img": img_url, "status": st.session_state.scan_status
+                            }
                         else:
-                            st.session_state.scan_msg = f"❌ ไม่พบรหัสนักเรียน {scanned} ในห้อง {selected_class}"
+                            st.session_state.scan_msg = f"ไม่พบรหัสนักเรียน {scanned} ในห้อง {selected_class}"
                             st.session_state.scan_status = "error"
+                            st.session_state.last_scanned = None
                         
-                        # ล้างช่องข้อความอัตโนมัติรอรับคนต่อไป
                         st.session_state.scanner_input = ""
 
-                # 📸 ส่วนของกล้องและช่องรับข้อมูล
-                with st.container(border=True):
-                    st.markdown("### 🎥 สแกน QR Code ต่อเนื่อง (ใช้กล้องมือถือ/แท็บเล็ต)")
-                    st.caption("ระบบจะอ่านภาพอัตโนมัติ ไม่ต้องกดถ่ายภาพ (หากต้องการพิมพ์รหัสเอง หรือใช้เครื่องยิงบาร์โค้ด ให้พิมพ์ในช่องด้านล่าง)")
-                    
-                    # แจ้งเตือนสถานะการสแกน
-                    if st.session_state.scan_msg:
-                        if st.session_state.scan_status == "success": st.success(st.session_state.scan_msg, icon="✅")
-                        elif st.session_state.scan_status == "warning": st.warning(st.session_state.scan_msg, icon="⚠️")
-                        else: st.error(st.session_state.scan_msg, icon="❌")
-
-                    # กล่องข้อความที่รับข้อมูลจาก Javascript (และซ่อน Label ไว้)
-                    st.text_input("scan_target", key="scanner_input", label_visibility="collapsed", placeholder="ช่องรับรหัสอัตโนมัติ / พิมพ์รหัสที่นี่", on_change=process_scan)
-
-                    # 🌟 ฝัง JavaScript สำหรับเปิดกล้องและอ่าน QR แบบ Real-time
-                    components.html(
-                        """
-                        <div id="reader" style="width: 100%; border-radius: 10px; overflow: hidden; border: 2px solid #eef2f5;"></div>
-                        <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-                        <script>
-                        function onScanSuccess(decodedText, decodedResult) {
-                            const parentDoc = window.parent.document;
-                            // ตามหาช่อง text_input ของ Streamlit จากคำว่า scan_target
-                            const inputField = parentDoc.querySelector('input[aria-label="scan_target"]');
-                            
-                            if(inputField) {
-                                let lastScanned = sessionStorage.getItem("lastScanned");
-                                let lastTime = sessionStorage.getItem("lastTime");
-                                let now = Date.now();
-
-                                // ป้องกันกล้องอ่านบาร์โค้ดเดิมซ้ำรัวๆ ภายใน 2 วินาที
-                                if(lastScanned === decodedText && (now - lastTime) < 2000) {
-                                    return;
-                                }
-                                sessionStorage.setItem("lastScanned", decodedText);
-                                sessionStorage.setItem("lastTime", now);
-
-                                // ส่งรหัสที่อ่านได้ เข้าไปในช่อง Streamlit
-                                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                nativeInputValueSetter.call(inputField, decodedText);
-                                
-                                // จำลองการพิมพ์และการกด Enter เพื่อส่งข้อมูลไป Python ทันที
-                                inputField.dispatchEvent(new Event('input', { bubbles: true }));
-                                inputField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
-                            }
-                        }
-                        function onScanFailure(error) { }
-                        
-                        let html5QrcodeScanner = new Html5QrcodeScanner(
-                          "reader", { fps: 15, qrbox: {width: 250, height: 250} }, false);
-                        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
-                        </script>
-                        """,
-                        height=450,
-                    )
-
-                st.markdown("<hr style='border-top:2px solid #eef2f5;'>", unsafe_allow_html=True)
+                # ==========================================
+                # 📸 ส่วนที่ 1: ระบบกล้อง (เปิด/ปิด ได้ตามต้องการ)
+                # ==========================================
+                st.markdown("---")
+                col_toggle, col_empty = st.columns([1, 1])
+                with col_toggle:
+                    # สวิตช์เปิด-ปิดกล้อง
+                    use_camera = st.toggle("📷 เปิดกล้องสแกน QR Code ทันที", value=False)
                 
-                # สรุปยอดรวมจิ๋ว
+                if use_camera:
+                    with st.container(border=True):
+                        st.caption("นำบัตร QR Code มาส่องที่กล้อง ระบบจะอ่านอัตโนมัติ")
+                        
+                        # กล่องรับค่าจาก JS (ซ่อนไว้)
+                        st.text_input("scan_target", key="scanner_input", label_visibility="collapsed", on_change=process_scan)
+
+                        # แสดงผลข้อมูลนักเรียนที่พึ่งสแกนล่าสุด
+                        if st.session_state.get('last_scanned'):
+                            ls = st.session_state.last_scanned
+                            card_class = "warning" if ls['status'] == "warning" else ""
+                            icon = "⚠️" if ls['status'] == "warning" else "✅"
+                            msg = "เช็คชื่อไปแล้ว (สแกนซ้ำ)" if ls['status'] == "warning" else "บันทึก 'มาเรียน' สำเร็จ"
+                            color = "#ffc107" if ls['status'] == "warning" else "#28a745"
+
+                            st.markdown(f"""
+                            <div class="scan-result-card {card_class}">
+                                <img src="{ls['img']}">
+                                <div class="scan-result-info">
+                                    <p style="color: {color}; font-weight: bold; margin-bottom: 2px;">{icon} {msg}</p>
+                                    <h3>{ls['name']}</h3>
+                                    <p>รหัสประจำตัว: {ls['id']}</p>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        elif st.session_state.scan_status == "error":
+                            st.error(f"❌ {st.session_state.scan_msg}")
+
+                        # Javascript กล้องสแกน
+                        components.html(
+                            """
+                            <div id="reader" style="width: 100%; border-radius: 10px; overflow: hidden; border: 2px solid #eef2f5;"></div>
+                            <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+                            <script>
+                            function onScanSuccess(decodedText, decodedResult) {
+                                const parentDoc = window.parent.document;
+                                const inputField = parentDoc.querySelector('input[aria-label="scan_target"]');
+                                
+                                if(inputField) {
+                                    let lastScanned = sessionStorage.getItem("lastScanned");
+                                    let lastTime = sessionStorage.getItem("lastTime");
+                                    let now = Date.now();
+
+                                    if(lastScanned === decodedText && (now - lastTime) < 2500) { return; }
+                                    sessionStorage.setItem("lastScanned", decodedText);
+                                    sessionStorage.setItem("lastTime", now);
+
+                                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                    nativeInputValueSetter.call(inputField, decodedText);
+                                    inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                                    inputField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+                                }
+                            }
+                            function onScanFailure(error) { }
+                            
+                            let html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: {width: 250, height: 250} }, false);
+                            html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+                            </script>
+                            """, height=350,
+                        )
+
+                # ==========================================
+                # 📋 ส่วนที่ 2: ระบบรายชื่อแบบเดิม (โชว์เสมอ)
+                # ==========================================
+                st.markdown("---")
+                st.markdown("### 📋 รายชื่อนักเรียน (ตรวจทานและแก้ไขได้)")
                 stats = pd.Series(st.session_state.att_data.values()).value_counts()
                 st.markdown(f"""
                     <div style='background-color:#fff; padding:15px; border-radius:10px; text-align:center; box-shadow:0 2px 5px rgba(0,0,0,0.02); margin-bottom:15px; border:1px solid #eef2f5;'>
@@ -225,7 +269,6 @@ if menu == "📝 บันทึกลงเวลา":
                     if not img_url or img_url.lower() == 'nan':
                         img_url = f"https://ui-avatars.com/api/?name={name}&background=random&color=fff&rounded=true&size=128"
 
-                    # แสดงกรอบสีเขียวอ่อนๆ ถ้านักเรียนคนนั้นสแกนแล้ว
                     bg_color = "#e8f5e9" if st.session_state.att_data.get(sid) == "มาเรียน" else "#ffffff"
 
                     st.markdown(f"<div style='background-color:{bg_color}; padding:10px; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:8px;'>", unsafe_allow_html=True)
