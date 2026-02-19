@@ -4,19 +4,20 @@ import gspread
 import json
 from datetime import datetime, date
 import plotly.express as px
+import qrcode
+from io import BytesIO
+import base64
 
 st.set_page_config(page_title="ระบบบริหารจัดการ โรงเรียนบ้านเชียงวิทยา", layout="wide", page_icon="🏫")
 
-# 🔗 1. ฟังก์ชันเชื่อมต่อฐานข้อมูล (ดึงตัวแปร sh ออกมาเพื่อใช้สร้าง Tab ใหม่)
+# 🔗 1. ฟังก์ชันเชื่อมต่อฐานข้อมูล
 @st.cache_resource
 def init_connection():
     creds_dict = json.loads(st.secrets["google_sheet"]["credentials"])
     gc = gspread.service_account_from_dict(creds_dict)
     sh = gc.open("ระบบเช็คชื่อนักเรียน")
-    
     ws_stud = sh.worksheet("Students")
     ws_att = sh.worksheet("Attendance")
-    
     try:
         ws_set = sh.worksheet("Settings")
     except gspread.exceptions.WorksheetNotFound:
@@ -24,10 +25,8 @@ def init_connection():
         ws_set.append_row(["Key", "Value"])
         ws_set.append_row(["StartDate", "2024-05-01"])
         ws_set.append_row(["EndDate", "2025-03-31"])
-        
     return sh, ws_stud, ws_att, ws_set
 
-# รับค่าตัวแปร sh มาด้วยเพื่อใช้จัดการ Tab รายห้อง
 sh, ws_students, ws_attendance, ws_settings = init_connection()
 
 set_data = ws_settings.get_all_records()
@@ -38,7 +37,17 @@ try:
 except:
     term_start, term_end = date(2024, 5, 1), date(2025, 3, 31)
 
-# 🎨 2. CSS สไตล์ Pluto Theme
+# ฟังก์ชันสร้าง QR Code เป็น Base64
+def generate_qr_base64(data):
+    qr = qrcode.QRCode(version=1, box_size=5, border=2)
+    qr.add_data(data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="#1e56a0", back_color="white")
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+# 🎨 2. CSS สไตล์ Pluto Theme & ID Card
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap');
@@ -54,7 +63,6 @@ st.markdown("""
     .pluto-metric h4 { margin: 0; font-size: 14px; color: #8a909d; font-weight: 500; }
     .pluto-metric h2 { margin: 5px 0 0 0; font-size: 28px; color: #212529; font-weight: 700; }
     .pluto-icon { font-size: 35px; }
-    
     .border-blue { border-left: 5px solid #17a2b8; }
     .border-green { border-left: 5px solid #28a745; }
     .border-red { border-left: 5px solid #dc3545; }
@@ -62,23 +70,36 @@ st.markdown("""
 
     div[data-baseweb="select"] { border-radius: 8px; }
     .stSelectbox label { display: none; }
+    
+    /* สไตล์สำหรับบัตรประจำตัวนักเรียน */
+    .id-card {
+        background-color: white; width: 300px; border-radius: 15px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1); overflow: hidden;
+        margin: 10px auto; border: 1px solid #e0e0e0; text-align: center;
+    }
+    .id-card-header { background-color: #1e56a0; color: white; padding: 15px 10px; font-weight: 600; font-size: 16px; }
+    .id-card-body { padding: 20px; }
+    .id-card img.avatar { width: 100px; height: 100px; border-radius: 50%; border: 3px solid #1e56a0; object-fit: cover; margin-bottom: 10px;}
+    .id-card img.qr { width: 120px; margin-top: 10px;}
+    .id-name { font-size: 18px; font-weight: 600; color: #333; margin-bottom: 5px;}
+    .id-detail { font-size: 14px; color: #666; }
     </style>
 """, unsafe_allow_html=True)
 
-# 📱 3. สร้างแถบเมนูด้านข้าง (Sidebar Navigation)
+# 📱 3. สร้างแถบเมนูด้านข้าง
 with st.sidebar:
     st.markdown("### 🏫 ระบบโรงเรียน")
     st.markdown("บ้านเชียงวิทยา")
     st.markdown("---")
     menu = st.radio("📌 เลือกหน้าต่างการทำงาน:", ["📝 บันทึกลงเวลา", "📊 แดชบอร์ด (วิเคราะห์ข้อมูล)", "⚙️ ตั้งค่าระบบ (Admin)"])
     st.markdown("---")
-    st.info(f"📅 รอบการบันทึกปัจจุบัน:\n{term_start.strftime('%d/%m/%Y')} ถึง {term_end.strftime('%d/%m/%Y')}")
+    st.info(f"📅 รอบการบันทึก:\n{term_start.strftime('%d/%m/%Y')} ถึง {term_end.strftime('%d/%m/%Y')}")
 
 # ==========================================
-# 🟢 หน้าที่ 1: บันทึกลงเวลา (สำหรับครู)
+# 🟢 หน้าที่ 1: บันทึกลงเวลา (พร้อมระบบ Scan QR)
 # ==========================================
 if menu == "📝 บันทึกลงเวลา":
-    st.markdown("<h2 style='color: #212529; font-weight:700;'>📝 บันทึกลงเวลาเรียน</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color: #212529; font-weight:700;'>📝 บันทึกลงเวลาเรียน (รองรับ QR Scan)</h2>", unsafe_allow_html=True)
     data = ws_students.get_all_records()
 
     if len(data) > 0:
@@ -98,8 +119,7 @@ if menu == "📝 บันทึกลงเวลา":
         date_str = check_date.strftime("%d/%m/%Y")
 
         if not (term_start <= check_date <= term_end):
-            st.error(f"⛔ ไม่สามารถบันทึกข้อมูลได้! วันที่ {date_str} อยู่นอกเหนือรอบการบันทึกที่ผู้ดูแลระบบกำหนดไว้")
-            st.warning("กรุณาติดต่อผู้ดูแลระบบ (Admin) เพื่อปรับปรุงช่วงเวลาเปิด-ปิดเทอมครับ")
+            st.error(f"⛔ ไม่สามารถบันทึกข้อมูลได้! วันที่ {date_str} อยู่นอกเหนือรอบการบันทึก")
         else:
             all_attendance = ws_attendance.get_all_records()
             df_att_check = pd.DataFrame(all_attendance)
@@ -113,8 +133,32 @@ if menu == "📝 บันทึกลงเวลา":
             else:
                 if 'current_class' not in st.session_state or st.session_state.current_class != selected_class:
                     st.session_state.current_class = selected_class
-                    st.session_state.att_data = {str(r['รหัสนักเรียน']): "มาเรียน" for _, r in df_room.iterrows()}
+                    # ค่าเริ่มต้นให้ทุกคนเป็น "ขาด" หรือ "มาเรียน" (ปรับได้) 
+                    # เพื่อให้เห็นผลตอนสแกน ผมตั้งค่าเริ่มต้นให้ทุกคนเป็น "ขาด" ก่อน แล้วสแกนเปลี่ยนเป็นมา
+                    st.session_state.att_data = {str(r['รหัสนักเรียน']): "ขาด" for _, r in df_room.iterrows()}
+                    st.session_state.scan_msg = ""
                 
+                # 🌟 ฟังก์ชันจัดการเมื่อมีการยิงบาร์โค้ด
+                def process_scan():
+                    scanned = st.session_state.scanner_input.strip()
+                    if scanned in st.session_state.att_data:
+                        st.session_state.att_data[scanned] = "มาเรียน"
+                        st.session_state.scan_msg = f"✅ รหัส {scanned} เปลี่ยนสถานะเป็น 'มาเรียน' สำเร็จ!"
+                    else:
+                        st.session_state.scan_msg = f"❌ ไม่พบรหัส {scanned} ในห้อง {selected_class}"
+                    st.session_state.scanner_input = "" # เคลียร์ช่องสแกนรอคนต่อไป
+
+                # 📸 กล่องรับค่าจากเครื่องสแกน QR
+                st.markdown("### 📸 สแกน QR Code (ยิงบาร์โค้ดที่ช่องนี้)")
+                st.text_input("คลิกให้เคอร์เซอร์กระพริบที่ช่องนี้ แล้วยิง QR Code ได้เลยครับ", 
+                              key="scanner_input", on_change=process_scan)
+                
+                if st.session_state.scan_msg:
+                    if "✅" in st.session_state.scan_msg:
+                        st.success(st.session_state.scan_msg)
+                    else:
+                        st.error(st.session_state.scan_msg)
+
                 stats = pd.Series(st.session_state.att_data.values()).value_counts()
                 st.markdown(f"""
                     <div style='background-color:#fff; padding:15px; border-radius:10px; text-align:center; box-shadow:0 2px 5px rgba(0,0,0,0.02); margin-bottom:15px; border:1px solid #eef2f5;'>
@@ -133,69 +177,61 @@ if menu == "📝 บันทึกลงเวลา":
                     if not img_url or img_url.lower() == 'nan':
                         img_url = f"https://ui-avatars.com/api/?name={name}&background=random&color=fff&rounded=true&size=128"
 
-                    with st.container(border=True): 
-                        col_img, col_info, col_status = st.columns([1.5, 5, 3.5])
-                        with col_img: st.image(img_url, width=50) 
-                        with col_info: st.markdown(f"<div style='padding-top:2px;'><b>{index+1}. {name}</b><br><span style='color:#8a909d; font-size:12px;'>รหัส: {sid}</span></div>", unsafe_allow_html=True)
-                        with col_status:
-                            current_val = st.session_state.att_data.get(sid, "มาเรียน")
-                            new_status = st.selectbox("สถานะ", status_options, key=f"sel_{sid}", label_visibility="collapsed", index=status_options.index(current_val))
-                            if new_status != current_val:
-                                st.session_state.att_data[sid] = new_status
-                                st.rerun()
+                    # แสดงกรอบสีเขียวอ่อนๆ ถ้านักเรียนคนนั้นสแกนแล้ว (มาเรียน)
+                    bg_color = "#e8f5e9" if st.session_state.att_data.get(sid) == "มาเรียน" else "#ffffff"
+
+                    st.markdown(f"<div style='background-color:{bg_color}; padding:10px; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:8px;'>", unsafe_allow_html=True)
+                    col_img, col_info, col_status = st.columns([1.5, 5, 3.5])
+                    with col_img: st.image(img_url, width=50) 
+                    with col_info: st.markdown(f"<div style='padding-top:2px;'><b>{index+1}. {name}</b><br><span style='color:#8a909d; font-size:12px;'>รหัส: {sid}</span></div>", unsafe_allow_html=True)
+                    with col_status:
+                        current_val = st.session_state.att_data.get(sid, "มาเรียน")
+                        new_status = st.selectbox("สถานะ", status_options, key=f"sel_{sid}", label_visibility="collapsed", index=status_options.index(current_val))
+                        if new_status != current_val:
+                            st.session_state.att_data[sid] = new_status
+                            st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
 
                 st.write("")
-                if st.button("🚀 ยืนยันบันทึกข้อมูล", type="primary", use_container_width=True):
+                if st.button("🚀 ยืนยันบันทึกข้อมูลเข้า Google Sheets", type="primary", use_container_width=True):
                     try:
                         final_records = [[date_str, str(r['รหัสนักเรียน']), r.get('ชื่อ',''), r.get('ชั้นเรียน',''), st.session_state.att_data.get(str(r['รหัสนักเรียน']), "มาเรียน"), recorded_by] for _, r in df_room.iterrows()]
-                        
-                        # 🌟 1. บันทึกลงหน้า Attendance แบบรวม (เพื่อให้ Dashboard ทำงานได้)
                         ws_attendance.append_rows(final_records)
-                        
-                        # 🌟 2. ระบบสร้าง Tab และบันทึกแยกรายห้องอัตโนมัติ
                         try:
-                            ws_class = sh.worksheet(selected_class) # ลองหาชื่อ Tab ดูว่ามีไหม (เช่น "ม.1/1")
+                            ws_class = sh.worksheet(selected_class)
                         except gspread.exceptions.WorksheetNotFound:
-                            # ถ้ายังไม่มี Tab ห้องนี้ ให้สร้างขึ้นมาใหม่เลย!
                             ws_class = sh.add_worksheet(title=selected_class, rows=100, cols=6)
-                            # ใส่หัวคอลัมน์ให้สวยงาม
                             ws_class.append_row(["วันที่", "รหัสนักเรียน", "ชื่อ", "ชั้นเรียน", "สถานะ", "ผู้บันทึก"])
-                        
-                        # นำข้อมูลไปต่อท้ายใน Tab ของห้องนั้นๆ
                         ws_class.append_rows(final_records)
                         
-                        st.success(f"✅ บันทึกสำเร็จ! ข้อมูลถูกแยกเก็บใน Tab '{selected_class}' เรียบร้อยแล้ว")
+                        st.success(f"✅ บันทึกสำเร็จ! เก็บลงฐานข้อมูลเรียบร้อย")
                         st.balloons()
                         st.rerun()
                     except Exception as e:
                         st.error(f"เกิดข้อผิดพลาด: {e}")
 
 # ==========================================
-# 📊 หน้าที่ 2: แดชบอร์ด และ วิเคราะห์ข้อมูล
+# 📊 หน้าที่ 2: แดชบอร์ด (วิเคราะห์ข้อมูล)
 # ==========================================
 elif menu == "📊 แดชบอร์ด (วิเคราะห์ข้อมูล)":
     st.markdown("<h2 style='color: #212529; font-weight:700;'>📊 ศูนย์วิเคราะห์ข้อมูล (Analytics)</h2>", unsafe_allow_html=True)
-    
     att_data = ws_attendance.get_all_records()
+    
     if len(att_data) > 0:
         df_att = pd.DataFrame(att_data)
-        
-        tab1, tab2 = st.tabs(["📅 สรุปรายวัน (ทั้งโรงเรียน / รายห้อง)", "👤 สรุปข้อมูลรายบุคคล"])
+        tab1, tab2 = st.tabs(["📅 สรุปรายวัน", "👤 สรุปรายบุคคล"])
         
         with tab1:
             with st.container(border=True):
-                st.markdown("<b>🔍 คัดกรองข้อมูล</b>", unsafe_allow_html=True)
                 col1, col2 = st.columns(2)
                 with col1: selected_date_dash = st.selectbox("เลือกวันที่", sorted(df_att['วันที่'].unique(), reverse=True))
                 all_classes = sorted(df_att['ชั้นเรียน'].unique().tolist())
                 with col2: selected_class_dash = st.multiselect("เลือกชั้นเรียน (ปล่อยว่าง = ทั้งโรงเรียน)", all_classes, default=all_classes)
 
-            if not selected_class_dash: 
-                selected_class_dash = all_classes
+            if not selected_class_dash: selected_class_dash = all_classes
             mask = (df_att['วันที่'] == selected_date_dash) & (df_att['ชั้นเรียน'].isin(selected_class_dash))
             df_filtered = df_att[mask]
             
-            st.write("")
             if not df_filtered.empty:
                 total_std = len(df_filtered)
                 present = len(df_filtered[df_filtered['สถานะ'] == 'มาเรียน'])
@@ -203,42 +239,16 @@ elif menu == "📊 แดชบอร์ด (วิเคราะห์ข้�
                 percent = (present / total_std) * 100 if total_std > 0 else 0
 
                 c1, c2, c3, c4 = st.columns(4)
-                with c1: st.markdown(f"""<div class="pluto-metric border-blue"><div class="metric-info"><h4>ยอดนักเรียน</h4><h2>{total_std}</h2></div><div class="pluto-icon">👥</div></div>""", unsafe_allow_html=True)
-                with c2: st.markdown(f"""<div class="pluto-metric border-green"><div class="metric-info"><h4>มาเรียนปกติ</h4><h2>{present}</h2></div><div class="pluto-icon">✅</div></div>""", unsafe_allow_html=True)
-                with c3: st.markdown(f"""<div class="pluto-metric border-red"><div class="metric-info"><h4>ลา/ขาด/สาย</h4><h2>{absent}</h2></div><div class="pluto-icon">⚠️</div></div>""", unsafe_allow_html=True)
-                with c4: st.markdown(f"""<div class="pluto-metric border-yellow"><div class="metric-info"><h4>เปอร์เซ็นต์มาเรียน</h4><h2>{percent:.1f}%</h2></div><div class="pluto-icon">📈</div></div>""", unsafe_allow_html=True)
+                with c1: st.markdown(f"""<div class="pluto-metric border-blue"><div class="metric-info"><h4>ยอดนักเรียน</h4><h2>{total_std}</h2></div></div>""", unsafe_allow_html=True)
+                with c2: st.markdown(f"""<div class="pluto-metric border-green"><div class="metric-info"><h4>มาเรียน</h4><h2>{present}</h2></div></div>""", unsafe_allow_html=True)
+                with c3: st.markdown(f"""<div class="pluto-metric border-red"><div class="metric-info"><h4>ลา/ขาด/สาย</h4><h2>{absent}</h2></div></div>""", unsafe_allow_html=True)
+                with c4: st.markdown(f"""<div class="pluto-metric border-yellow"><div class="metric-info"><h4>เปอร์เซ็นต์</h4><h2>{percent:.1f}%</h2></div></div>""", unsafe_allow_html=True)
 
-                col_chart1, col_chart2 = st.columns([1.5, 1])
-                with col_chart1:
-                    with st.container(border=True):
-                        st.markdown("<b>📈 สถิติแยกตามห้องเรียน</b>", unsafe_allow_html=True)
-                        df_bar = df_filtered.groupby(['ชั้นเรียน', 'สถานะ']).size().reset_index(name='จำนวน')
-                        fig_bar = px.bar(df_bar, x='ชั้นเรียน', y='จำนวน', color='สถานะ', barmode='group',
-                                         color_discrete_map={'มาเรียน':'#28a745', 'สาย':'#ffc107', 'ลา':'#fd7e14', 'ป่วย':'#dc3545', 'ขาด':'#6c757d'})
-                        fig_bar.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=20, b=0))
-                        st.plotly_chart(fig_bar, use_container_width=True)
-                
-                with col_chart2:
-                    with st.container(border=True):
-                        st.markdown("<b>🎯 สัดส่วนสถานะ</b>", unsafe_allow_html=True)
-                        fig_pie = px.pie(df_filtered, names='สถานะ', hole=0.55,
-                                         color='สถานะ', color_discrete_map={'มาเรียน':'#28a745', 'สาย':'#ffc107', 'ลา':'#fd7e14', 'ป่วย':'#dc3545', 'ขาด':'#6c757d'})
-                        fig_pie.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=20, b=0), showlegend=False)
-                        fig_pie.update_traces(textposition='outside', textinfo='percent+label')
-                        st.plotly_chart(fig_pie, use_container_width=True)
-
-                with st.container(border=True):
-                    col_tbl_head, col_btn = st.columns([7, 3])
-                    with col_tbl_head: st.markdown("<b>📋 รายละเอียดข้อมูล</b>", unsafe_allow_html=True)
-                    with col_btn:
-                        csv = df_filtered.to_csv(index=False).encode('utf-8-sig')
-                        st.download_button("📥 โหลดไฟล์ CSV", data=csv, file_name=f'report_{selected_date_dash}.csv', use_container_width=True)
-                    st.dataframe(df_filtered, hide_index=True, use_container_width=True)
+                st.dataframe(df_filtered, hide_index=True, use_container_width=True)
             else:
-                st.info("ไม่พบข้อมูลตามเงื่อนไขที่ค้นหาครับ")
+                st.info("ไม่พบข้อมูลตามเงื่อนไข")
 
         with tab2:
-            st.markdown("#### 👤 ค้นหาและดูสถิตินักเรียนรายบุคคล")
             with st.container(border=True):
                 c1, c2 = st.columns(2)
                 with c1: ind_class = st.selectbox("เลือกชั้นเรียน:", sorted(df_att['ชั้นเรียน'].unique()))
@@ -246,54 +256,75 @@ elif menu == "📊 แดชบอร์ด (วิเคราะห์ข้�
                 with c2: ind_student = st.selectbox("เลือกชื่อนักเรียน:", sorted(student_list))
             
             df_ind = df_att[(df_att['ชั้นเรียน'] == ind_class) & (df_att['ชื่อ'] == ind_student)]
-            
             if not df_ind.empty:
-                st.write("")
-                total_days = len(df_ind)
-                ind_present = len(df_ind[df_ind['สถานะ'] == 'มาเรียน'])
-                ind_late = len(df_ind[df_ind['สถานะ'] == 'สาย'])
-                ind_absent = len(df_ind[df_ind['สถานะ'].isin(['ลา', 'ป่วย', 'ขาด'])])
-                ind_percent = (ind_present / total_days) * 100 if total_days > 0 else 0
-                
-                c1, c2, c3, c4 = st.columns(4)
-                c1.markdown(f"""<div class="pluto-metric border-blue"><div class="metric-info"><h4>เช็คชื่อแล้ว (วัน)</h4><h2>{total_days}</h2></div></div>""", unsafe_allow_html=True)
-                c2.markdown(f"""<div class="pluto-metric border-green"><div class="metric-info"><h4>มาเรียน / สาย</h4><h2>{ind_present} / {ind_late}</h2></div></div>""", unsafe_allow_html=True)
-                c3.markdown(f"""<div class="pluto-metric border-red"><div class="metric-info"><h4>ลา / ป่วย / ขาด</h4><h2>{ind_absent}</h2></div></div>""", unsafe_allow_html=True)
-                c4.markdown(f"""<div class="pluto-metric border-yellow"><div class="metric-info"><h4>ความสม่ำเสมอ</h4><h2>{ind_percent:.1f}%</h2></div></div>""", unsafe_allow_html=True)
-                
-                st.markdown("<b>ประวัติการบันทึกย้อนหลัง</b>", unsafe_allow_html=True)
                 st.dataframe(df_ind[['วันที่', 'สถานะ', 'ผู้บันทึก']].sort_values(by='วันที่', ascending=False), hide_index=True, use_container_width=True)
             else:
-                st.info("ยังไม่มีข้อมูลการบันทึกของนักเรียนท่านนี้ครับ")
-                
+                st.info("ยังไม่มีข้อมูลการบันทึกของนักเรียนท่านนี้")
     else:
-        st.warning("ยังไม่มีข้อมูลการเช็คชื่อในระบบเลยครับ")
+        st.warning("ยังไม่มีข้อมูลในระบบ")
 
 # ==========================================
-# ⚙️ หน้าที่ 3: ตั้งค่าระบบ (Admin)
+# ⚙️ หน้าที่ 3: ตั้งค่าระบบ (Admin & บัตร QR)
 # ==========================================
 elif menu == "⚙️ ตั้งค่าระบบ (Admin)":
-    st.markdown("<h2 style='color: #212529; font-weight:700;'>⚙️ ตั้งค่าระบบส่วนกลาง (Admin)</h2>", unsafe_allow_html=True)
-    st.markdown("หน้านี้สำหรับผู้ดูแลระบบ เพื่อกำหนดกรอบเวลาในการบันทึกข้อมูลของโรงเรียนครับ")
+    st.markdown("<h2 style='color: #212529; font-weight:700;'>⚙️ ผู้ดูแลระบบ (Admin Panel)</h2>", unsafe_allow_html=True)
     
-    with st.container(border=True):
-        st.markdown("#### 📅 กำหนดช่วงเวลาที่อนุญาตให้เช็คชื่อ (เปิด-ปิดเทอม)")
-        
-        c1, c2 = st.columns(2)
-        with c1: new_start = st.date_input("วันเริ่มต้นการบันทึก (Start Date)", term_start)
-        with c2: new_end = st.date_input("วันสิ้นสุดการบันทึก (End Date)", term_end)
-        
-        st.markdown("<hr style='border-top:1px dashed #ccc;'>", unsafe_allow_html=True)
-        
-        if st.button("💾 บันทึกการตั้งค่าระบบ", type="primary"):
-            try:
-                cell_start = ws_settings.find("StartDate")
-                ws_settings.update_cell(cell_start.row, cell_start.col + 1, new_start.strftime("%Y-%m-%d"))
+    tab_admin1, tab_admin2 = st.tabs(["📅 ตั้งค่าเปิด-ปิดเทอม", "🪪 สร้างบัตรประจำตัว (QR Code)"])
+    
+    with tab_admin1:
+        with st.container(border=True):
+            st.markdown("#### กำหนดช่วงเวลาที่อนุญาตให้เช็คชื่อ")
+            c1, c2 = st.columns(2)
+            with c1: new_start = st.date_input("วันเริ่มต้น (Start Date)", term_start)
+            with c2: new_end = st.date_input("วันสิ้นสุด (End Date)", term_end)
+            
+            if st.button("💾 บันทึกการตั้งค่าระบบ", type="primary"):
+                try:
+                    cell_start = ws_settings.find("StartDate")
+                    ws_settings.update_cell(cell_start.row, cell_start.col + 1, new_start.strftime("%Y-%m-%d"))
+                    cell_end = ws_settings.find("EndDate")
+                    ws_settings.update_cell(cell_end.row, cell_end.col + 1, new_end.strftime("%Y-%m-%d"))
+                    st.success("✅ อัปเดตช่วงเวลาเรียบร้อยแล้ว!")
+                except Exception as e:
+                    st.error(f"❌ เกิดข้อผิดพลาด: {e}")
+
+    with tab_admin2:
+        st.markdown("#### 🪪 สร้างบัตรประจำตัวนักเรียนพร้อม QR Code")
+        data = ws_students.get_all_records()
+        if len(data) > 0:
+            df_students = pd.DataFrame(data)
+            class_list = sorted(df_students['ชั้นเรียน'].unique().tolist())
+            
+            selected_id_class = st.selectbox("📌 เลือกชั้นเรียนที่ต้องการพิมพ์บัตร", class_list)
+            df_id_room = df_students[df_students['ชั้นเรียน'] == selected_id_class]
+            
+            st.markdown("---")
+            # สร้างการแสดงผลบัตรแบบ Grid (3 บัตร ต่อ 1 แถว)
+            cols = st.columns(3)
+            col_idx = 0
+            
+            for index, row in df_id_room.iterrows():
+                sid = str(row['รหัสนักเรียน'])
+                name = str(row.get('ชื่อ', ''))
+                img_url = str(row.get('รูปภาพ', '')).strip()
+                if not img_url or img_url.lower() == 'nan':
+                    img_url = f"https://ui-avatars.com/api/?name={name}&background=1e56a0&color=fff&rounded=true&size=128"
                 
-                cell_end = ws_settings.find("EndDate")
-                ws_settings.update_cell(cell_end.row, cell_end.col + 1, new_end.strftime("%Y-%m-%d"))
+                # นำรหัสนักเรียนไปแปลงเป็น QR Code
+                qr_base64 = generate_qr_base64(sid)
                 
-                st.success("✅ อัปเดตช่วงเวลาเปิด-ปิดเทอมเรียบร้อยแล้ว! (ระบบจะรีเฟรชหน้าจอใน 2 วินาที)")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก: {e}")
+                # วาดบัตรประจำตัวในคอลัมน์
+                with cols[col_idx % 3]:
+                    st.markdown(f"""
+                    <div class="id-card">
+                        <div class="id-card-header">โรงเรียนบ้านเชียงวิทยา</div>
+                        <div class="id-card-body">
+                            <img src="{img_url}" class="avatar">
+                            <div class="id-name">{name}</div>
+                            <div class="id-detail">ชั้น {selected_id_class} | รหัส: {sid}</div>
+                            <img src="data:image/png;base64,{qr_base64}" class="qr">
+                            <div style="font-size:10px; color:#999; margin-top:5px;">สแกนเพื่อเช็คชื่อ</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                col_idx += 1
