@@ -229,7 +229,16 @@ if menu == "📝 บันทึกลงเวลา":
                             }
                             function onScanFailure(error) { }
                             
-                            let html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: {width: 250, height: 250} }, false);
+                           // บังคับให้ใช้กล้องหลัง (environment) เป็นหลัก และย่อขนาดกล่องโฟกัสให้สแกนง่ายขึ้น
+let html5QrcodeScanner = new Html5QrcodeScanner(
+    "reader", 
+    { 
+        fps: 15, 
+        qrbox: {width: 250, height: 250},
+        videoConstraints: { facingMode: "environment" } 
+    }, 
+    false
+);
                             html5QrcodeScanner.render(onScanSuccess, onScanFailure);
                             </script>
                             """, height=350,
@@ -402,3 +411,4 @@ elif menu == "⚙️ ตั้งค่าระบบ (Admin)":
                     </div>
                     """, unsafe_allow_html=True)
                 col_idx += 1
+
