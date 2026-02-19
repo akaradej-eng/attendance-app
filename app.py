@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import gspread
 import json
@@ -7,8 +8,6 @@ import plotly.express as px
 import qrcode
 from io import BytesIO
 import base64
-import cv2
-import numpy as np
 
 st.set_page_config(page_title="ระบบบริหารจัดการ โรงเรียนบ้านเชียงวิทยา", layout="wide", page_icon="🏫")
 
@@ -39,7 +38,6 @@ try:
 except:
     term_start, term_end = date(2024, 5, 1), date(2025, 3, 31)
 
-# ฟังก์ชันสร้าง QR Code เป็น Base64
 def generate_qr_base64(data):
     qr = qrcode.QRCode(version=1, box_size=5, border=2)
     qr.add_data(data)
@@ -49,19 +47,14 @@ def generate_qr_base64(data):
     img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
-# 🎨 2. CSS สไตล์ Pluto Theme & ID Card
+# 🎨 2. CSS สไตล์ Pluto Theme
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap');
     html, body, [class*="css"] { font-family: 'Prompt', sans-serif; }
     .stApp { background-color: #f4f7f6; }
     #MainMenu, footer, header {visibility: hidden;}
-
-    .pluto-metric {
-        display: flex; align-items: center; justify-content: space-between;
-        background: #ffffff; padding: 20px; border-radius: 12px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.03); margin-bottom: 15px;
-    }
+    .pluto-metric { background: #ffffff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between;}
     .pluto-metric h4 { margin: 0; font-size: 14px; color: #8a909d; font-weight: 500; }
     .pluto-metric h2 { margin: 5px 0 0 0; font-size: 28px; color: #212529; font-weight: 700; }
     .pluto-icon { font-size: 35px; }
@@ -69,15 +62,9 @@ st.markdown("""
     .border-green { border-left: 5px solid #28a745; }
     .border-red { border-left: 5px solid #dc3545; }
     .border-yellow { border-left: 5px solid #ffc107; }
-
     div[data-baseweb="select"] { border-radius: 8px; }
     .stSelectbox label { display: none; }
-    
-    .id-card {
-        background-color: white; width: 300px; border-radius: 15px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1); overflow: hidden;
-        margin: 10px auto; border: 1px solid #e0e0e0; text-align: center;
-    }
+    .id-card { background-color: white; width: 300px; border-radius: 15px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); overflow: hidden; margin: 10px auto; border: 1px solid #e0e0e0; text-align: center; }
     .id-card-header { background-color: #1e56a0; color: white; padding: 15px 10px; font-weight: 600; font-size: 16px; }
     .id-card-body { padding: 20px; }
     .id-card img.avatar { width: 100px; height: 100px; border-radius: 50%; border: 3px solid #1e56a0; object-fit: cover; margin-bottom: 10px;}
@@ -97,7 +84,7 @@ with st.sidebar:
     st.info(f"📅 รอบการบันทึก:\n{term_start.strftime('%d/%m/%Y')} ถึง {term_end.strftime('%d/%m/%Y')}")
 
 # ==========================================
-# 🟢 หน้าที่ 1: บันทึกลงเวลา (พร้อมระบบกล้อง Scan QR)
+# 🟢 หน้าที่ 1: บันทึกลงเวลา (Real-time Scanner & เช็คซ้ำ)
 # ==========================================
 if menu == "📝 บันทึกลงเวลา":
     st.markdown("<h2 style='color: #212529; font-weight:700;'>📝 บันทึกลงเวลาเรียน</h2>", unsafe_allow_html=True)
@@ -134,59 +121,92 @@ if menu == "📝 บันทึกลงเวลา":
             else:
                 if 'current_class' not in st.session_state or st.session_state.current_class != selected_class:
                     st.session_state.current_class = selected_class
-                    # ตั้งค่าเริ่มต้นให้ทุกคนเป็น "ขาด" เพื่อให้สแกนเปลี่ยนเป็น "มาเรียน"
+                    # ตั้งค่าเริ่มต้นให้ทุกคนเป็น "ขาด"
                     st.session_state.att_data = {str(r['รหัสนักเรียน']): "ขาด" for _, r in df_room.iterrows()}
                     st.session_state.scan_msg = ""
+                    st.session_state.scan_status = "info" # เอาไว้บอกว่าให้โชว์สีเขียวหรือสีเหลือง
                 
-                # 📸 แบ่งช่องทางการสแกนเป็น 2 แบบ (กล้องมือถือ / เครื่องยิง)
-                tab_cam, tab_hw = st.tabs(["📷 สแกนผ่านกล้องมือถือ/แท็บเล็ต", "🔫 สแกนผ่านเครื่องยิงบาร์โค้ด"])
-                
-                # --- แบบที่ 1: สแกนผ่านกล้องมือถือ ---
-                with tab_cam:
-                    st.markdown("กดปุ่มเปิดกล้อง ถ่ายรูป QR Code ของนักเรียนเพื่อเช็คชื่อ (กด 'Clear photo' เพื่อสแกนคนต่อไป)")
-                    camera_image = st.camera_input("ถ่ายรูป QR Code", label_visibility="collapsed")
-                    
-                    if camera_image is not None:
-                        # แปลงภาพจากกล้องให้อ่านด้วย OpenCV
-                        file_bytes = np.asarray(bytearray(camera_image.read()), dtype=np.uint8)
-                        opencv_img = cv2.imdecode(file_bytes, 1)
-                        
-                        # ระบบค้นหาและถอดรหัส QR Code
-                        detector = cv2.QRCodeDetector()
-                        data, bbox, _ = detector.detectAndDecode(opencv_img)
-                        
-                        if data:
-                            scanned_cam = data.strip()
-                            if scanned_cam in st.session_state.att_data:
-                                if st.session_state.att_data[scanned_cam] == "มาเรียน":
-                                    st.warning(f"⚠️ รหัส {scanned_cam} สแกนไปแล้วครับ!")
-                                else:
-                                    st.session_state.att_data[scanned_cam] = "มาเรียน"
-                                    st.success(f"✅ สแกนสำเร็จ! เปลี่ยนสถานะรหัส {scanned_cam} เป็น 'มาเรียน'")
-                            else:
-                                st.error(f"❌ ไม่พบรหัส {scanned_cam} ในห้อง {selected_class}")
-                        else:
-                            st.error("⚠️ หา QR Code ไม่เจอ กรุณาจัดให้อยู่ตรงกลางและถ่ายให้ชัดเจนครับ")
-
-                # --- แบบที่ 2: เครื่องยิงบาร์โค้ดฮาร์ดแวร์ ---
-                with tab_hw:
-                    def process_scan():
-                        scanned = st.session_state.scanner_input.strip()
+                # 🌟 ฟังก์ชันจัดการข้อมูลเวลากล้องจับภาพได้
+                def process_scan():
+                    scanned = st.session_state.scanner_input.strip()
+                    if scanned:
                         if scanned in st.session_state.att_data:
-                            st.session_state.att_data[scanned] = "มาเรียน"
-                            st.session_state.scan_msg = f"✅ รหัส {scanned} เปลี่ยนสถานะเป็น 'มาเรียน' สำเร็จ!"
+                            current_status = st.session_state.att_data[scanned]
+                            if current_status == "มาเรียน":
+                                # 🟡 ระบบป้องกันสแกนซ้ำ
+                                st.session_state.scan_msg = f"⚠️ สแกนซ้ำ! รหัส {scanned} ถูกเช็คชื่อว่ามาเรียนไปแล้วครับ"
+                                st.session_state.scan_status = "warning"
+                            else:
+                                # 🟢 สแกนครั้งแรก
+                                st.session_state.att_data[scanned] = "มาเรียน"
+                                st.session_state.scan_msg = f"✅ เช็คชื่อสำเร็จ! รหัส {scanned} สถานะ: มาเรียน"
+                                st.session_state.scan_status = "success"
                         else:
-                            st.session_state.scan_msg = f"❌ ไม่พบรหัส {scanned} ในห้อง {selected_class}"
-                        st.session_state.scanner_input = "" 
+                            st.session_state.scan_msg = f"❌ ไม่พบรหัสนักเรียน {scanned} ในห้อง {selected_class}"
+                            st.session_state.scan_status = "error"
+                        
+                        # ล้างช่องข้อความอัตโนมัติรอรับคนต่อไป
+                        st.session_state.scanner_input = ""
 
-                    st.text_input("คลิกให้เคอร์เซอร์กระพริบที่ช่องนี้ แล้วยิง QR Code ได้เลย", key="scanner_input", on_change=process_scan)
+                # 📸 ส่วนของกล้องและช่องรับข้อมูล
+                with st.container(border=True):
+                    st.markdown("### 🎥 สแกน QR Code ต่อเนื่อง (ใช้กล้องมือถือ/แท็บเล็ต)")
+                    st.caption("ระบบจะอ่านภาพอัตโนมัติ ไม่ต้องกดถ่ายภาพ (หากต้องการพิมพ์รหัสเอง หรือใช้เครื่องยิงบาร์โค้ด ให้พิมพ์ในช่องด้านล่าง)")
+                    
+                    # แจ้งเตือนสถานะการสแกน
                     if st.session_state.scan_msg:
-                        if "✅" in st.session_state.scan_msg: st.success(st.session_state.scan_msg)
-                        else: st.error(st.session_state.scan_msg)
+                        if st.session_state.scan_status == "success": st.success(st.session_state.scan_msg, icon="✅")
+                        elif st.session_state.scan_status == "warning": st.warning(st.session_state.scan_msg, icon="⚠️")
+                        else: st.error(st.session_state.scan_msg, icon="❌")
+
+                    # กล่องข้อความที่รับข้อมูลจาก Javascript (และซ่อน Label ไว้)
+                    st.text_input("scan_target", key="scanner_input", label_visibility="collapsed", placeholder="ช่องรับรหัสอัตโนมัติ / พิมพ์รหัสที่นี่", on_change=process_scan)
+
+                    # 🌟 ฝัง JavaScript สำหรับเปิดกล้องและอ่าน QR แบบ Real-time
+                    components.html(
+                        """
+                        <div id="reader" style="width: 100%; border-radius: 10px; overflow: hidden; border: 2px solid #eef2f5;"></div>
+                        <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+                        <script>
+                        function onScanSuccess(decodedText, decodedResult) {
+                            const parentDoc = window.parent.document;
+                            // ตามหาช่อง text_input ของ Streamlit จากคำว่า scan_target
+                            const inputField = parentDoc.querySelector('input[aria-label="scan_target"]');
+                            
+                            if(inputField) {
+                                let lastScanned = sessionStorage.getItem("lastScanned");
+                                let lastTime = sessionStorage.getItem("lastTime");
+                                let now = Date.now();
+
+                                // ป้องกันกล้องอ่านบาร์โค้ดเดิมซ้ำรัวๆ ภายใน 2 วินาที
+                                if(lastScanned === decodedText && (now - lastTime) < 2000) {
+                                    return;
+                                }
+                                sessionStorage.setItem("lastScanned", decodedText);
+                                sessionStorage.setItem("lastTime", now);
+
+                                // ส่งรหัสที่อ่านได้ เข้าไปในช่อง Streamlit
+                                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                nativeInputValueSetter.call(inputField, decodedText);
+                                
+                                // จำลองการพิมพ์และการกด Enter เพื่อส่งข้อมูลไป Python ทันที
+                                inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                                inputField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+                            }
+                        }
+                        function onScanFailure(error) { }
+                        
+                        let html5QrcodeScanner = new Html5QrcodeScanner(
+                          "reader", { fps: 15, qrbox: {width: 250, height: 250} }, false);
+                        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+                        </script>
+                        """,
+                        height=450,
+                    )
 
                 st.markdown("<hr style='border-top:2px solid #eef2f5;'>", unsafe_allow_html=True)
                 
-                # สรุปยอดรวม
+                # สรุปยอดรวมจิ๋ว
                 stats = pd.Series(st.session_state.att_data.values()).value_counts()
                 st.markdown(f"""
                     <div style='background-color:#fff; padding:15px; border-radius:10px; text-align:center; box-shadow:0 2px 5px rgba(0,0,0,0.02); margin-bottom:15px; border:1px solid #eef2f5;'>
@@ -205,6 +225,7 @@ if menu == "📝 บันทึกลงเวลา":
                     if not img_url or img_url.lower() == 'nan':
                         img_url = f"https://ui-avatars.com/api/?name={name}&background=random&color=fff&rounded=true&size=128"
 
+                    # แสดงกรอบสีเขียวอ่อนๆ ถ้านักเรียนคนนั้นสแกนแล้ว
                     bg_color = "#e8f5e9" if st.session_state.att_data.get(sid) == "มาเรียน" else "#ffffff"
 
                     st.markdown(f"<div style='background-color:{bg_color}; padding:10px; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:8px;'>", unsafe_allow_html=True)
